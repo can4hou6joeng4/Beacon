@@ -14,7 +14,7 @@ function isPublicAsset(pathname: string) {
   )
 }
 
-export function proxy(request: NextRequest) {
+export function middleware(request: NextRequest) {
   const expected = process.env.PDF_CHECKER_TOKEN || ""
   if (!expected || isPublicAsset(request.nextUrl.pathname)) {
     return NextResponse.next()

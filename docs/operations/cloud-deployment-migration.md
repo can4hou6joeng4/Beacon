@@ -112,6 +112,43 @@ AUDIT_OBJECT_UPLOAD_EXPIRES_SECONDS=900
 AUDIT_OBJECT_DOWNLOAD_EXPIRES_SECONDS=3600
 ```
 
+For Cloudflare Workers deployment, prefer native R2 and D1 bindings instead of
+S3 credentials:
+
+```text
+AUDIT_DB_DRIVER=d1
+AUDIT_OBJECT_STORE_DRIVER=r2-binding
+AUDIT_OBJECT_PREFIX=jobs
+```
+
+The current Worker config lives in `web/wrangler.jsonc` and expects:
+
+- D1 binding `AUDIT_DB` with database name `pdf-audit-db`.
+- R2 binding `AUDIT_BUCKET` with bucket name `pdf-audit-artifacts`.
+- R2 binding `NEXT_INC_CACHE_R2_BUCKET` with bucket name `pdf-audit-opennext-cache`
+  for OpenNext incremental cache.
+- Secrets `PADDLEOCR_API_TOKEN` and `PDF_CHECKER_TOKEN`.
+
+Before deploying, create the Cloudflare resources and replace the placeholder
+`database_id` in `web/wrangler.jsonc`:
+
+```bash
+cd web
+npx wrangler r2 bucket create pdf-audit-artifacts
+npx wrangler r2 bucket create pdf-audit-opennext-cache
+npx wrangler d1 create pdf-audit-db
+npx wrangler d1 migrations apply pdf-audit-db --remote
+npx wrangler secret put PADDLEOCR_API_TOKEN
+npx wrangler secret put PDF_CHECKER_TOKEN
+```
+
+Then build and deploy through OpenNext:
+
+```bash
+npm run cf:build
+npm run cf:deploy
+```
+
 Create a signed upload URL:
 
 ```bash

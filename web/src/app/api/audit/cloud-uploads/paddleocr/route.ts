@@ -27,14 +27,14 @@ export async function POST(request: Request) {
     assertSafeObjectKey(payload.objectKey, config.prefix)
     const fileUrl = createPresignedGetUrl({ objectKey: payload.objectKey, config })
     const submitted = await submitPaddleOcrUrlJob({ fileUrl: fileUrl.url })
-    const db = getAuditDb()
-    const job = db.createJob({
+    const db = await getAuditDb()
+    const job = await db.createJob({
       filename: payload.filename || payload.objectKey.split("/").at(-1) || "input.pdf",
       cutoff: payload.cutoff || "2026-05-07",
       runtime: "paddleocr",
       objectKey: payload.objectKey,
     })
-    const updated = db.attachProviderJob(job.id, submitted.providerJobId)
+    const updated = await db.attachProviderJob(job.id, submitted.providerJobId)
 
     return NextResponse.json({
       job: updated,

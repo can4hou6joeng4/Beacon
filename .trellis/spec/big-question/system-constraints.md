@@ -267,12 +267,21 @@ Every write operation should:
   - `POST /api/audit/cloud-uploads` with `{ "filename": "...pdf", "size": number, "contentType": "application/pdf" }` -> signed PUT URL and `objectKey`
   - `POST /api/audit/cloud-uploads/paddleocr` with `{ "objectKey": "jobs/<jobId>/input.pdf" }` -> signed GET URL submission to PaddleOCR and `providerJobId`
 - S3-compatible object storage config:
-  - `AUDIT_OBJECT_STORE_DRIVER=r2-s3`
+  - `AUDIT_OBJECT_STORE_DRIVER=r2-s3 | r2-binding`
   - `AUDIT_OBJECT_STORE_ENDPOINT`
   - `AUDIT_OBJECT_BUCKET`
   - `AUDIT_OBJECT_ACCESS_KEY_ID`
   - `AUDIT_OBJECT_SECRET_ACCESS_KEY`
   - `AUDIT_OBJECT_PREFIX`
+- Cloudflare Worker deployment signatures:
+  - OpenNext config: `web/open-next.config.ts`
+  - Wrangler config: `web/wrangler.jsonc`
+  - D1 binding: `AUDIT_DB`
+  - R2 artifact binding: `AUDIT_BUCKET`
+  - OpenNext cache binding: `NEXT_INC_CACHE_R2_BUCKET`
+  - D1 migration: `web/migrations/0001_init_audit_jobs.sql`
+  - Build command: `npm run cf:build`
+  - Deploy command: `npm run cf:deploy`
 - PaddleOCR provider secrets/config:
   - `PADDLEOCR_API_BASE_URL`
   - `PADDLEOCR_API_TOKEN`
@@ -284,6 +293,10 @@ Every write operation should:
 - Do not deploy macOS-only code (`PDFKit`, `Vision`, `AppKit`) to Linux/serverless runtimes.
 - Do not rely on local filesystem upload staging in immutable or multi-instance runtimes.
 - Do not rely on local SQLite for shared cloud history unless the deployment target provides a persistent single-node disk and explicit backup policy.
+- On Cloudflare Workers, use the asynchronous `AuditDb` facade so route code can run with D1 while local tests/dev still use SQLite.
+- Keep native Node packages such as `better-sqlite3` behind dynamic imports in local-only adapters; do not import them from shared Worker route modules.
+- On Cloudflare Workers, prefer `AUDIT_OBJECT_STORE_DRIVER=r2-binding` with the `AUDIT_BUCKET` binding for artifact writes/reads.
+- Use S3 presigned URLs only for direct browser upload or non-Worker deployments that cannot use R2 bindings.
 - Preserve artifact names across runtimes so UI/download endpoints remain stable.
 - Keep provider tokens in the deployment secret store; never commit bearer tokens to docs, examples, or task files.
 - PaddleOCR URL-mode job submission must reject non-HTTP(S) `fileUrl` values.
@@ -299,6 +312,8 @@ Every write operation should:
 - OCR job runs synchronously inside request handler -> reject for large PDFs; use async job lifecycle.
 - DNS cutover before parity tests -> reject; keep existing route as rollback.
 - real provider token appears in committed files -> rotate the token and replace with an environment-variable placeholder.
+- `wrangler r2` or `wrangler d1` returns authentication error `10000` -> the current Cloudflare API token is valid enough for account discovery but lacks R2/D1 permissions; replace token or run browser login before resource creation.
+- OpenNext reports "Node.js middleware is not currently supported" -> use Edge middleware (`src/middleware.ts`) for Cloudflare even if Next 16 recommends `proxy.ts` for Node runtime.
 - PaddleOCR `fileUrl` is `file://` or another local path -> reject; upload to object storage and pass a signed HTTP(S) URL.
 - PaddleOCR state is outside `pending|running|done|failed` -> fail closed and surface provider drift.
 - object key uses `..`, an absolute path, a backslash, or a different prefix -> reject before signing.
@@ -318,6 +333,7 @@ Every write operation should:
 - Database tests asserting deterministic job history ordering and status transitions.
 - Parity test against at least one real nested-outline PDF before DNS cutover.
 - Build check for deployment target warnings about traced local filesystem access.
+- OpenNext build check (`npm run cf:build`) must complete before attempting `wrangler deploy`.
 
 ### 7. Wrong vs Correct
 

@@ -15,14 +15,14 @@ export const runtime = "nodejs"
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
-    const db = getAuditDb()
-    const job = db.getJob(id)
+    const db = await getAuditDb()
+    const job = await db.getJob(id)
     if (!job) return NextResponse.json({ error: "任务不存在" }, { status: 404 })
 
     if (job.runtime === "paddleocr") {
       if (!job.providerJobId) return NextResponse.json({ error: "PaddleOCR 任务不存在" }, { status: 404 })
       const snapshot = await fetchPaddleOcrJobSnapshot({ providerJobId: job.providerJobId })
-      let updated = db.updateFromStatus(id, { status: snapshot.status, message: snapshot.message })
+      let updated = await db.updateFromStatus(id, { status: snapshot.status, message: snapshot.message })
       if (snapshot.status === "complete" && snapshot.jsonUrl && job.objectKey) {
         const config = createCloudObjectStoreConfig()
         const resultKey = siblingObjectKey({ objectKey: job.objectKey, filename: "result.json", prefix: config.prefix })
@@ -44,7 +44,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
               config,
             }),
           ])
-          updated = db.updateFromResult(id, analyzed.result.summary)
+          updated = await db.updateFromResult(id, analyzed.result.summary)
         }
       }
       return NextResponse.json({
@@ -58,7 +58,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     if (!job.pythonJobId) return NextResponse.json({ error: "任务不存在" }, { status: 404 })
 
     const status = await fetchPythonStatus(job.pythonJobId)
-    const updated = db.updateFromStatus(id, status)
+    const updated = await db.updateFromStatus(id, status)
     return NextResponse.json({ job: updated, status, stage: stageFromStatus(status) })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "读取任务状态失败" }, { status: 500 })

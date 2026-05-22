@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server"
 import { isAuthorized } from "@/lib/audit-auth"
-import { writeUploadChunk } from "@/lib/upload-store"
 
 export const runtime = "nodejs"
+
+function localUploadsEnabled(): boolean {
+  return (process.env.AUDIT_RUNTIME_MODE ?? "local-python") === "local-python"
+}
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     if (!isAuthorized(request)) {
       return NextResponse.json({ error: "未授权，请使用带 token 的链接访问" }, { status: 401 })
+    }
+    if (!localUploadsEnabled()) {
+      return NextResponse.json({ error: "云端运行模式请使用对象存储上传地址" }, { status: 409 })
     }
 
     const { id } = await params
@@ -24,6 +30,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: "单个上传分片超过限制" }, { status: 413 })
     }
 
+    const { writeUploadChunk } = await import("@/lib/upload-store")
     writeUploadChunk(id, index, content)
     return NextResponse.json({ ok: true })
   } catch (error) {

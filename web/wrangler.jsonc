@@ -1,0 +1,51 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "main": ".open-next/worker.js",
+  "name": "pdf-certificate-expiry-checker",
+  "compatibility_date": "2026-05-22",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "routes": [
+    {
+      "pattern": "pdf-audit.bobochang.cn",
+      "custom_domain": true
+    }
+  ],
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "pdf-certificate-expiry-checker"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "NEXT_INC_CACHE_R2_BUCKET",
+      "bucket_name": "pdf-audit-opennext-cache"
+    },
+    {
+      "binding": "AUDIT_BUCKET",
+      "bucket_name": "pdf-audit-artifacts"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "AUDIT_DB",
+      "database_name": "pdf-audit-db",
+      "database_id": "replace-with-cloudflare-d1-database-id",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    "AUDIT_RUNTIME_MODE": "paddleocr",
+    "NEXT_PUBLIC_AUDIT_RUNTIME_MODE": "paddleocr",
+    "AUDIT_DB_DRIVER": "d1",
+    "AUDIT_OBJECT_STORE_DRIVER": "r2-binding",
+    "AUDIT_OBJECT_PREFIX": "jobs",
+    "PADDLEOCR_API_BASE_URL": "https://paddleocr.aistudio-app.com/api/v2/ocr",
+    "PADDLEOCR_MODEL": "PaddleOCR-VL-1.5",
+    "PADDLEOCR_POLL_INTERVAL_MS": "5000"
+  }
+}

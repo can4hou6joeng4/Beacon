@@ -60,7 +60,7 @@ export function cleanupUpload(uploadId: string) {
 
 function uploadsRoot() {
   if (process.env.AUDIT_UPLOAD_DIR) return resolve(process.env.AUDIT_UPLOAD_DIR)
-  return join(process.cwd(), "data", "uploads")
+  return join(/*turbopackIgnore: true*/ process.cwd(), "data", "uploads")
 }
 
 function uploadDir(uploadId: string) {

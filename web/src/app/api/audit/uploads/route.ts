@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server"
 import { isAuthorized } from "@/lib/audit-auth"
-import { createUpload } from "@/lib/upload-store"
 
 export const runtime = "nodejs"
+
+function localUploadsEnabled(): boolean {
+  return (process.env.AUDIT_RUNTIME_MODE ?? "local-python") === "local-python"
+}
 
 export async function POST(request: Request) {
   try {
     if (!isAuthorized(request)) {
       return NextResponse.json({ error: "未授权，请使用带 token 的链接访问" }, { status: 401 })
+    }
+    if (!localUploadsEnabled()) {
+      return NextResponse.json({ error: "云端运行模式请使用 /api/audit/cloud-uploads" }, { status: 409 })
     }
 
     const payload = (await request.json().catch(() => null)) as { filename?: string; size?: number; contentType?: string } | null
@@ -21,6 +27,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "PDF 文件超过当前 100MB 上传限制" }, { status: 413 })
     }
 
+    const { createUpload } = await import("@/lib/upload-store")
     return NextResponse.json(createUpload({
       filename: payload.filename,
       size: payload.size,

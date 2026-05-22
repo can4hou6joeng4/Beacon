@@ -18,10 +18,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "请上传 PDF 文件" }, { status: 400 })
     }
 
-    const db = getAuditDb()
-    const job = db.createJob({ filename: file.name, cutoff })
+    const db = await getAuditDb()
+    const job = await db.createJob({ filename: file.name, cutoff })
     const python = await createPythonJob(formData)
-    const updated = db.attachPythonJob(job.id, python.job_id)
+    const updated = await db.attachPythonJob(job.id, python.job_id)
     return NextResponse.json({ job: updated })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "创建任务失败" }, { status: 500 })

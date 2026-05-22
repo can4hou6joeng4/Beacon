@@ -253,6 +253,96 @@ Cloudflare Workers:
 | Public config (logo URL) | Yes            | Optional          |
 | Version numbers          | Yes            | Optional          |
 
+## Scenario: Cloudflare OpenNext Deployment Bindings
+
+### 1. Scope / Trigger
+
+- Trigger: deploying this Next.js audit app to Cloudflare Workers through OpenNext.
+- Applies when replacing local SQLite, local upload staging, and local tunnel origin with Cloudflare D1/R2/Worker runtime bindings.
+
+### 2. Signatures
+
+- Config files:
+  - `web/open-next.config.ts`
+  - `web/wrangler.jsonc`
+  - `web/migrations/*.sql`
+- Commands:
+  - `npm run cf:build`
+  - `npm run cf:preview`
+  - `npm run cf:deploy`
+  - `npx wrangler d1 migrations apply pdf-audit-db --remote`
+- Worker bindings:
+  - `AUDIT_DB: D1Database`
+  - `AUDIT_BUCKET: R2Bucket`
+  - `NEXT_INC_CACHE_R2_BUCKET: R2Bucket`
+- Required secrets:
+  - `PADDLEOCR_API_TOKEN`
+  - `PDF_CHECKER_TOKEN`
+
+### 3. Contracts
+
+- `AUDIT_RUNTIME_MODE=paddleocr` and `NEXT_PUBLIC_AUDIT_RUNTIME_MODE=paddleocr` select the cloud upload path.
+- `AUDIT_DB_DRIVER=d1` means job history must use the `AUDIT_DB` binding.
+- `AUDIT_OBJECT_STORE_DRIVER=r2-binding` means artifact storage must use the `AUDIT_BUCKET` binding.
+- `web/wrangler.jsonc` must not contain real secret values. Secrets are set with `wrangler secret put`.
+- `database_id` is account-specific and must be replaced after `wrangler d1 create`.
+- Keep local fallback values in examples only; do not point production Worker variables at `127.0.0.1`.
+
+### 4. Validation & Error Matrix
+
+- Missing `AUDIT_DB` binding -> status/history endpoints fail before writing jobs.
+- Missing `AUDIT_BUCKET` binding -> cloud uploads cannot persist artifacts.
+- Placeholder D1 `database_id` -> Wrangler deploy must be blocked until replaced.
+- Cloudflare API error `10000` during R2/D1 commands -> current `CLOUDFLARE_API_TOKEN` lacks product permissions.
+- `proxy.ts` Node middleware used for Cloudflare OpenNext -> build fails; use Edge-compatible `middleware.ts`.
+- Real token in `wrangler.jsonc`, `.env*`, docs, or tests -> rotate token and replace with placeholder.
+
+### 5. Good/Base/Bad Cases
+
+- Good: `wrangler.jsonc` declares bindings, secrets are uploaded separately, D1 migrations apply remotely, and `npm run cf:build` succeeds.
+- Base: Local `next build` and Python tests still pass with SQLite and local upload fallback.
+- Bad: Deploying a Worker that imports `better-sqlite3` or `node:fs` from shared route modules at top level.
+
+### 6. Tests Required
+
+- `npm run test`
+- `npm run lint`
+- `npm run build`
+- `npm run cf:build`
+- Python unittest discovery for local fallback
+- Secret grep for PaddleOCR/Cloudflare/R2 credentials
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```jsonc
+{
+  "vars": {
+    "PADDLEOCR_API_TOKEN": "real-token",
+    "AUDIT_OBJECT_STORE_DRIVER": "r2-s3"
+  }
+}
+```
+
+#### Correct
+
+```jsonc
+{
+  "vars": {
+    "AUDIT_OBJECT_STORE_DRIVER": "r2-binding",
+    "AUDIT_DB_DRIVER": "d1"
+  },
+  "r2_buckets": [{ "binding": "AUDIT_BUCKET", "bucket_name": "pdf-audit-artifacts" }],
+  "d1_databases": [{ "binding": "AUDIT_DB", "database_name": "pdf-audit-db", "database_id": "<account-specific-id>" }]
+}
+```
+
+```bash
+npx wrangler secret put PADDLEOCR_API_TOKEN
+npx wrangler secret put PDF_CHECKER_TOKEN
+```
+
 ## Verification
 
 After deployment, verify URLs are correct:

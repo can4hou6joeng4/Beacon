@@ -37,6 +37,7 @@ deploy/local/logs/
 # Node / Next.js
 web/node_modules/
 web/.next/
+web/.open-next/
 web/out/
 web/build/
 web/.vercel/

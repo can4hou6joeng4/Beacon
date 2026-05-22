@@ -9,14 +9,14 @@ export const runtime = "nodejs"
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
-    const db = getAuditDb()
-    const job = db.getJob(id)
+    const db = await getAuditDb()
+    const job = await db.getJob(id)
     if (job?.runtime === "paddleocr") {
       if (!job.objectKey) return NextResponse.json({ error: "云端任务缺少对象路径" }, { status: 404 })
       const config = createCloudObjectStoreConfig()
       const resultKey = siblingObjectKey({ objectKey: job.objectKey, filename: "result.json", prefix: config.prefix })
       const result = JSON.parse(await fetchCloudObjectText({ objectKey: resultKey, config })) as AuditResult
-      const updated = db.updateFromResult(id, result.summary)
+      const updated = await db.updateFromResult(id, result.summary)
       return NextResponse.json({
         job: updated,
         result,
@@ -26,7 +26,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     if (!job || !job.pythonJobId) return NextResponse.json({ error: "任务不存在" }, { status: 404 })
 
     const result = await fetchPythonResult(job.pythonJobId)
-    const updated = db.updateFromResult(id, result.summary, {
+    const updated = await db.updateFromResult(id, result.summary, {
       certificate_pages: result.manifest?.certificate_pages,
     })
 

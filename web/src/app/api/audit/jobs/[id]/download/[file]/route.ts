@@ -12,8 +12,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     const { id, file } = await params
     if (!allowed.has(file)) return NextResponse.json({ error: "不支持的下载文件" }, { status: 400 })
 
-    const db = getAuditDb()
-    const job = db.getJob(id)
+    const db = await getAuditDb()
+    const job = await db.getJob(id)
     if (job?.runtime === "paddleocr") {
       if (!job.objectKey) return NextResponse.json({ error: "云端任务缺少对象路径" }, { status: 404 })
       const config = createCloudObjectStoreConfig()

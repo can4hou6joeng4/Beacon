@@ -1,7 +1,8 @@
 import { createHash, createHmac, randomUUID } from "node:crypto"
 import { extname } from "node:path"
+import { getCloudflareContext } from "@opennextjs/cloudflare"
 
-export type CloudObjectStoreDriver = "local" | "r2-s3"
+export type CloudObjectStoreDriver = "local" | "r2-s3" | "r2-binding"
 
 export type CloudObjectStoreConfig = {
   driver: CloudObjectStoreDriver
@@ -19,6 +20,15 @@ export type PresignedObjectUrl = {
   objectKey: string
   url: string
   expiresAt: string
+}
+
+type R2BucketLike = {
+  put(key: string, value: string | ReadableStream | ArrayBuffer | Blob, options?: { httpMetadata?: { contentType?: string } }): Promise<unknown>
+  get(key: string): Promise<{ text(): Promise<string> } | null>
+}
+
+type CloudflareBindings = {
+  AUDIT_BUCKET?: R2BucketLike
 }
 
 type Env = Record<string, string | undefined>
@@ -123,6 +133,12 @@ export async function putCloudObjectText(input: {
   config: CloudObjectStoreConfig
   fetcher?: typeof fetch
 }): Promise<void> {
+  const bucket = await getR2Binding(input.config)
+  if (bucket) {
+    await bucket.put(input.objectKey, input.content, { httpMetadata: { contentType: input.contentType } })
+    return
+  }
+
   const upload = createPresignedPutUrl({
     objectKey: input.objectKey,
     contentType: input.contentType,
@@ -144,6 +160,13 @@ export async function fetchCloudObjectText(input: {
   config: CloudObjectStoreConfig
   fetcher?: typeof fetch
 }): Promise<string> {
+  const bucket = await getR2Binding(input.config)
+  if (bucket) {
+    const object = await bucket.get(input.objectKey)
+    if (!object) throw new Error("Object artifact not found")
+    return object.text()
+  }
+
   const download = createPresignedGetUrl({ objectKey: input.objectKey, config: input.config })
   const fetcher = input.fetcher ?? fetch
   const response = await fetcher(download.url, { method: "GET" })
@@ -161,8 +184,9 @@ export function siblingObjectKey(input: { objectKey: string; filename: string; p
 }
 
 export function assertObjectStoreConfigured(config: CloudObjectStoreConfig): void {
+  if (config.driver === "r2-binding") return
   if (config.driver !== "r2-s3") {
-    throw new Error("Cloud upload requires AUDIT_OBJECT_STORE_DRIVER=r2-s3")
+    throw new Error("Cloud upload requires AUDIT_OBJECT_STORE_DRIVER=r2-s3 or r2-binding")
   }
   const missing = [
     ["AUDIT_OBJECT_STORE_ENDPOINT", config.endpoint],
@@ -229,7 +253,23 @@ function createPresignedObjectUrl(input: PresignInput): string {
 function parseDriver(value: string | undefined): CloudObjectStoreDriver {
   if (!value || value === "local") return "local"
   if (value === "r2-s3") return "r2-s3"
-  throw new Error("AUDIT_OBJECT_STORE_DRIVER must be local or r2-s3")
+  if (value === "r2-binding") return "r2-binding"
+  throw new Error("AUDIT_OBJECT_STORE_DRIVER must be local, r2-s3, or r2-binding")
+}
+
+async function getR2Binding(config: CloudObjectStoreConfig): Promise<R2BucketLike | null> {
+  if (config.driver !== "r2-binding") return null
+  try {
+    const context = await getCloudflareContext({ async: true })
+    const env = context.env as CloudflareBindings
+    if (!env.AUDIT_BUCKET) {
+      throw new Error("Missing R2 binding: AUDIT_BUCKET")
+    }
+    return env.AUDIT_BUCKET
+  } catch (error) {
+    if (process.env.NODE_ENV === "test") return null
+    throw error
+  }
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
