@@ -1,0 +1,111 @@
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { afterEach, describe, expect, it } from "vitest"
+import { createAuditDbForPath } from "../audit-db"
+
+let tempDir: string | null = null
+
+function tempDbPath() {
+  tempDir = mkdtempSync(join(tmpdir(), "pdf-audit-db-"))
+  return join(tempDir, "audit.sqlite")
+}
+
+afterEach(() => {
+  if (tempDir) rmSync(tempDir, { recursive: true, force: true })
+  tempDir = null
+})
+
+describe("audit db", () => {
+  it("creates, attaches python job id, updates summary, and lists newest first", () => {
+    const db = createAuditDbForPath(tempDbPath())
+    const first = db.createJob({ filename: "old.pdf", cutoff: "2026-05-07" })
+    const second = db.createJob({ filename: "投标文件.pdf", cutoff: "2026-05-07" })
+
+    db.attachPythonJob(second.id, "6f6811c2c99949bc8b2c7a431cf5bc78")
+    db.updateFromStatus(second.id, { status: "complete", message: "检查完成" })
+    db.updateFromResult(
+      second.id,
+      {
+        pages_ocr: 184,
+        ocr_error_pages: 0,
+        ocr_total_pages: 184,
+        validity_candidates: 84,
+        matches: 0,
+        near_expiry: 0,
+        needs_review: 3,
+        cutoff: "2026-05-07",
+      },
+      { certificate_pages: 184 },
+    )
+
+    const jobs = db.listJobs()
+    expect(jobs.map((job) => job.id)).toEqual([second.id, first.id])
+    expect(jobs[0]).toMatchObject({
+      pythonJobId: "6f6811c2c99949bc8b2c7a431cf5bc78",
+      providerJobId: null,
+      objectKey: null,
+      runtime: "local-python",
+      filename: "投标文件.pdf",
+      status: "complete",
+      pagesOcr: 184,
+      validityCandidates: 84,
+      matches: 0,
+      needsReview: 3,
+    })
+  })
+
+  it("persists a completed status summary before result details are opened", () => {
+    const db = createAuditDbForPath(tempDbPath())
+    const job = db.createJob({ filename: "投标文件.pdf", cutoff: "2026-05-22" })
+
+    db.attachPythonJob(job.id, "6ab8a1ef300e4398a8729e3f39b7e3cc")
+    const updated = db.updateFromStatus(job.id, {
+      status: "complete",
+      message: "检查完成",
+      summary: {
+        pages_ocr: 225,
+        ocr_error_pages: 3,
+        ocr_total_pages: 228,
+        validity_candidates: 99,
+        matches: 0,
+        near_expiry: 2,
+        needs_review: 2,
+        cutoff: "2026-05-22",
+      },
+    })
+
+    expect(updated).toMatchObject({
+      status: "complete",
+      pagesOcr: 225,
+      certificatePages: 225,
+      ocrErrorPages: 3,
+      ocrTotalPages: 228,
+      validityCandidates: 99,
+      nearExpiry: 2,
+      needsReview: 2,
+    })
+  })
+
+  it("creates cloud paddleocr jobs and attaches provider job ids", () => {
+    const db = createAuditDbForPath(tempDbPath())
+    const job = db.createJob({
+      filename: "cloud.pdf",
+      cutoff: "2026-05-22",
+      runtime: "paddleocr",
+      objectKey: "jobs/job-123/input.pdf",
+    })
+    const attached = db.attachProviderJob(job.id, "paddle-job-123")
+
+    expect(attached).toMatchObject({
+      id: job.id,
+      filename: "cloud.pdf",
+      runtime: "paddleocr",
+      objectKey: "jobs/job-123/input.pdf",
+      providerJobId: "paddle-job-123",
+      pythonJobId: null,
+      status: "queued",
+      message: "PaddleOCR 任务已创建",
+    })
+  })
+})

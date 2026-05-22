@@ -1,0 +1,59 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local runtime and generated artifacts
+*.log
+*.sqlite
+*.sqlite-*
+*.db
+/output/
+/uploads/
+/artifacts/
+
+# Secrets and local environment
+.env
+.env.*
+*.pem
+
+# Trellis local/runtime state
+.trellis/.developer
+.trellis/.runtime/
+.trellis/workspace/
+*.tmp
+
+# Local Superpowers brainstorming scratch state
+.superpowers/
+
+# Local service logs
+deploy/local/logs/
+
+# Node / Next.js
+web/node_modules/
+web/.next/
+web/out/
+web/build/
+web/.vercel/
+web/coverage/
+web/.pnp
+web/.pnp.*
+web/.yarn/*
+!web/.yarn/patches
+!web/.yarn/plugins
+!web/.yarn/releases
+!web/.yarn/versions
+web/npm-debug.log*
+web/yarn-debug.log*
+web/yarn-error.log*
+web/.pnpm-debug.log*
+web/*.tsbuildinfo
+web/next-env.d.ts
+
+# Large local regression PDFs should be stored outside Git.
+*.pdf

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PDF 证件有效期检查</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <aside class="control-panel">
+      <div class="brand">
+        <div class="brand-mark">PDF</div>
+        <div>
+          <h1>证件有效期检查</h1>
+          <p>本机 OCR 审计工作台</p>
+        </div>
+      </div>
+      <form id="auditForm" class="upload-form">
+        <label class="drop-zone" id="dropZone">
+          <input id="pdfInput" name="pdf" type="file" accept="application/pdf" required>
+          <span class="drop-title">选择或拖入 PDF</span>
+          <span id="fileName" class="drop-meta">文件只保存在本机任务目录</span>
+        </label>
+        <label class="field-label" for="cutoff">筛选截止日期</label>
+        <input id="cutoff" name="cutoff" type="date" value="2026-05-22" required>
+        <button id="submitBtn" type="submit">开始检查</button>
+      </form>
+      <section class="progress-card">
+        <h2>任务进度</h2>
+        <ol id="progressList">
+          <li>等待上传</li>
+          <li>解析书签</li>
+          <li>OCR 证件页</li>
+          <li>抽取有效期</li>
+          <li>生成结果</li>
+        </ol>
+      </section>
+    </aside>
+
+    <section class="workspace">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Local PDF Audit</p>
+          <h2 id="headline">上传 PDF 后开始检查</h2>
+          <p id="subhead">结果会按“早于截止日期”“临近到期”“需要复核”分层展示。</p>
+        </div>
+        <div class="actions" id="downloadActions"></div>
+      </header>
+
+      <section class="metrics" id="metrics"></section>
+
+      <nav class="tabs" aria-label="结果分类">
+        <button class="tab active" data-tab="matches">早于截止日期</button>
+        <button class="tab" data-tab="near">临近到期</button>
+        <button class="tab" data-tab="review">需要复核</button>
+      </nav>
+
+      <section id="tableHost" class="table-card">
+        <div class="empty-state">等待检查结果</div>
+      </section>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
