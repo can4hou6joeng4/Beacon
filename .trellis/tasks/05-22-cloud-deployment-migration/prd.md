@@ -29,16 +29,16 @@ The recommended target is:
 - Cloudflare remains the public DNS/front-door layer.
 - Uploaded PDFs and generated artifacts move to object storage.
 - Job history moves to a cloud database.
-- OCR becomes a PaddleOCR asynchronous adapter, with the current macOS OCR path retained as a fallback/development profile until cloud OCR parity is validated.
+- OCR becomes a PaddleOCR asynchronous adapter. The current macOS OCR path is no longer a production fallback; it may remain in the repository only as a legacy development/test reference.
 
 ## Requirements
 
 - Keep `pdf-audit.bobochang.cn` as the final user-facing hostname.
-- Do not break the current local macOS service while migration work is in progress.
+- Treat Cloudflare as the only business runtime. Do not restore or depend on the old local macOS service, LaunchAgents, or Cloudflare Tunnel for production access.
 - Add a deployment architecture document that clearly separates:
-  - current local mode,
-  - recommended cloud mode,
-  - fallback/container/macOS-host modes.
+  - historical local mode,
+  - active Cloudflare cloud mode,
+  - non-local fallback/container/provider OCR modes.
 - Define an explicit cloud job lifecycle:
   - create job,
   - upload PDF,
@@ -56,24 +56,24 @@ The recommended target is:
   - avoid buffering large PDFs in memory,
   - make backend/OCR provider selection environment-driven.
 - Define a validation plan against `投标文件.pdf` and existing tests.
-- Document DNS cutover from Cloudflare Tunnel to cloud origin/Worker route.
+- Document DNS cutover from Cloudflare Tunnel to the Cloudflare Worker custom domain route.
 
 ## Recommended MVP Scope
 
-This task should first produce a migration-ready architecture and project configuration skeleton without replacing OCR completely in one pass.
+This task should complete the cloud deployment path and leave local service startup out of the business runtime.
 
 MVP deliverables:
 
-- Add cloud migration design documentation.
-- Add environment examples for local vs cloud deployment modes.
-- Add a PaddleOCR OCR adapter boundary in documentation and/or minimal code if it can be done safely.
-- Add a staged execution checklist for the next implementation task.
-- Keep all existing local commands and tests working.
+- Deploy the OpenNext app to Cloudflare Workers.
+- Bind `pdf-audit.bobochang.cn` directly to the Worker custom domain.
+- Configure Cloudflare D1, R2, runtime variables, and secrets for production cloud mode.
+- Use PaddleOCR as the cloud OCR provider boundary.
+- Remove the stale production dependency on local LaunchAgents and Cloudflare Tunnel.
 
 ## Out of Scope
 
-- Removing the current local Python/Swift OCR path.
-- Switching DNS production traffic before cloud parity is verified.
+- Rewriting or deleting the current local Python/Swift OCR source files.
+- Restoring local DNS/Tunnel production traffic after the Worker custom domain is active.
 - Implementing full AWS/GCP/Azure account provisioning in this pass.
 - Rewriting the OCR algorithm from scratch without a comparison run.
 - Committing any real PaddleOCR token or provider credential.
@@ -85,7 +85,9 @@ MVP deliverables:
 - [ ] The plan identifies the recommended architecture and at least two fallback options.
 - [ ] The plan documents PaddleOCR async job submission, polling, JSONL download, and result normalization.
 - [ ] The plan preserves `pdf-audit.bobochang.cn` as the public hostname.
-- [ ] The plan includes a step-by-step migration sequence and rollback path.
+- [ ] The plan includes a step-by-step migration sequence and a cloud-native rollback path.
+- [ ] The deployed Cloudflare Worker serves `pdf-audit.bobochang.cn`.
+- [ ] The old local Tunnel/DNS route is not required for production access.
 - [ ] Local tests/build checks that are relevant to documentation/config changes pass, or failures are documented.
 
 ## Definition of Done
@@ -93,4 +95,5 @@ MVP deliverables:
 - Trellis task is active and has persisted PRD/research context.
 - Documentation is updated in the repo under `docs/operations/`.
 - Any changed config examples are validated for consistency.
-- Existing local runtime path remains untouched unless explicitly changed by later work.
+- Production config in `web/wrangler.jsonc` points at the real Cloudflare D1/R2 resources.
+- Local runtime may remain as legacy source code, but it is not a production deployment target.

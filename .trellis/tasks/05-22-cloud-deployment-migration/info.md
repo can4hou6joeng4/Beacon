@@ -19,29 +19,39 @@ Cloudflare Worker / OpenNext app
                              +--> PaddleOCR API (PaddleOCR-VL-1.5)
                              +--> fallback: AWS Textract or Google Vision
                              +--> fallback: Linux OCR container
-                             +--> fallback: remote macOS OCR host
+                             +--> fallback: managed provider OCR
 ```
 
-## First implementation pass
+## Current implementation target
 
-Do not attempt the full OCR replacement immediately. The first pass should make the migration executable by documenting and isolating the boundaries:
+The production business runtime is Cloudflare-only. Do not restart or depend on
+the old local LaunchAgents, local Next.js/Python services, or Cloudflare Tunnel
+for production traffic.
+
+The migration is implemented by wiring these boundaries:
 
 - publish the architecture and migration runbook,
 - name the required environment variables and secrets,
 - document the PaddleOCR job submission, polling, and JSONL result contract,
 - define storage/database/provider contracts,
-- keep local mode working,
-- prepare a follow-up task for the cloud OCR adapter.
+- keep local code only as a legacy development/test reference,
+- deploy the OpenNext Worker and bind the production hostname.
 
 ## Key design decisions
 
 - Cloudflare remains the DNS and public access layer because the domain is already managed there and Cloudflare can host the frontend/API or route to another origin.
-- The local Tunnel should be treated as a rollback/fallback route after cutover, not as the long-term production route.
+- The local Tunnel is retired as a production route. Rollback should use Worker deployment rollback or alternate cloud OCR/provider configuration, not the local Mac.
 - R2 is the natural Cloudflare-native file store for PDFs and artifacts; S3/GCS may be used if the OCR provider requires same-cloud storage.
 - Job processing must be asynchronous because large PDFs and OCR jobs are too slow and memory-heavy for request/response handlers.
 - PaddleOCR is the first OCR provider target because the user supplied a concrete async job API and model name.
 - PaddleOCR tokens must be configured through secrets, never committed to repository documentation or examples.
 - Existing artifact names should be preserved: `result.json`, `matches.csv`, `ocr.txt`, `manifest.json`.
+- Cloudflare production resources are:
+  - Worker: `pdf-certificate-expiry-checker`
+  - Hostname: `pdf-audit.bobochang.cn`
+  - D1 database: `pdf-audit-db`
+  - R2 artifacts bucket: `pdf-audit-artifacts`
+  - R2 OpenNext cache bucket: `pdf-audit-opennext-cache`
 
 ## Main risk
 

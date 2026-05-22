@@ -1,10 +1,20 @@
 # Cloud Deployment Migration Runbook
 
-This document describes how to move the PDF certificate expiry checker from the current local Mac + Cloudflare Tunnel setup to a cloud-hosted service while preserving the public hostname `pdf-audit.bobochang.cn`.
+This document describes the Cloudflare-only production deployment for the PDF certificate expiry checker. The service now uses the public hostname `pdf-audit.bobochang.cn` directly on a Cloudflare Worker custom domain. The old local Mac + Cloudflare Tunnel route is historical and must not be treated as the business runtime.
 
-## Current Runtime
+## Production Runtime
 
-The current production-like runtime is intentionally local:
+The production runtime is intentionally cloud-only:
+
+- `pdf-audit.bobochang.cn` is bound to the Cloudflare Worker `pdf-certificate-expiry-checker`.
+- `web/` is built with OpenNext and deployed to Cloudflare Workers.
+- Uploaded PDFs and generated artifacts are stored in the R2 bucket `pdf-audit-artifacts`.
+- OpenNext incremental cache assets are stored in the R2 bucket `pdf-audit-opennext-cache`.
+- Job history/status is stored in the D1 database `pdf-audit-db`.
+- OCR is submitted to PaddleOCR asynchronously with model `PaddleOCR-VL-1.5`.
+- Runtime secrets are Cloudflare Worker secrets: `PADDLEOCR_API_TOKEN` and `PDF_CHECKER_TOKEN`.
+
+Historical local components still exist in the repository, but they are no longer production services:
 
 - `web/` runs the Next.js audit command center.
 - `src/pdf_expiry_checker/server.py` runs the Python API/OCR service.
@@ -14,7 +24,7 @@ The current production-like runtime is intentionally local:
 - `deploy/local/*` installs macOS LaunchAgents for Next.js, Python, and `cloudflared`.
 - Cloudflare Tunnel maps `pdf-audit.bobochang.cn` to `http://127.0.0.1:3000`.
 
-This is reliable enough for a workstation-hosted tool, but it still depends on the local Mac being awake, online, and healthy.
+Those local pieces are useful as legacy reference/test code only. Do not restore LaunchAgents or Tunnel routing for production operation.
 
 ## Feasibility Summary
 
@@ -52,13 +62,13 @@ Cloudflare Worker / OpenNext app
                              +--> fallback: remote macOS OCR host
 ```
 
-Cloudflare remains the public front door because the domain and existing hostname are already there. The long-term change is that the hostname should route to the cloud app instead of a local Tunnel.
+Cloudflare remains the public front door because the domain and existing hostname are already there. The hostname now routes to the cloud app instead of a local Tunnel.
 
 ## Recommended MVP Path
 
 ### Phase 1: Cloud-ready boundary
 
-Keep the existing local service working. Add the cloud architecture and contracts before moving production traffic.
+Add the cloud architecture and contracts without using local service startup as a production dependency.
 
 Required boundaries:
 
@@ -129,8 +139,9 @@ The current Worker config lives in `web/wrangler.jsonc` and expects:
   for OpenNext incremental cache.
 - Secrets `PADDLEOCR_API_TOKEN` and `PDF_CHECKER_TOKEN`.
 
-Before deploying, create the Cloudflare resources and replace the placeholder
-`database_id` in `web/wrangler.jsonc`:
+The active Cloudflare production resources are already created and configured in
+`web/wrangler.jsonc`. For a new account or disaster recovery environment,
+create the resources and set the resulting D1 database id in that file:
 
 ```bash
 cd web
@@ -153,7 +164,7 @@ Create a signed upload URL:
 
 ```bash
 curl -sS \
-  -X POST 'http://127.0.0.1:3000/api/audit/cloud-uploads?token=<pdf-checker-token>' \
+  -X POST 'https://pdf-audit.bobochang.cn/api/audit/cloud-uploads?token=<pdf-checker-token>' \
   -H 'Content-Type: application/json' \
   -d '{"filename":"input.pdf","size":123456,"contentType":"application/pdf"}'
 ```
@@ -182,7 +193,7 @@ Submit the uploaded object to PaddleOCR:
 
 ```bash
 curl -sS \
-  -X POST 'http://127.0.0.1:3000/api/audit/cloud-uploads/paddleocr?token=<pdf-checker-token>' \
+  -X POST 'https://pdf-audit.bobochang.cn/api/audit/cloud-uploads/paddleocr?token=<pdf-checker-token>' \
   -H 'Content-Type: application/json' \
   -d '{"objectKey":"jobs/<job-id>/input.pdf"}'
 ```
@@ -264,18 +275,11 @@ Implemented repo boundary:
 - Submit URL-mode job endpoint: `POST /api/audit/paddleocr/jobs`
 - Poll provider status endpoint: `GET /api/audit/paddleocr/jobs/{jobId}/status`
 
-Manual smoke test shape:
-
-```bash
-cd /Users/a1-6/Documents/pdf-certificate-expiry-checker/web
-PADDLEOCR_API_TOKEN='<secret>' npm run dev
-```
-
 Submit a publicly reachable or signed PDF URL:
 
 ```bash
 curl -sS \
-  -X POST 'http://127.0.0.1:3000/api/audit/paddleocr/jobs?token=<pdf-checker-token>' \
+  -X POST 'https://pdf-audit.bobochang.cn/api/audit/paddleocr/jobs?token=<pdf-checker-token>' \
   -H 'Content-Type: application/json' \
   -d '{"fileUrl":"https://example.com/input.pdf"}'
 ```
@@ -283,7 +287,7 @@ curl -sS \
 Poll the provider job:
 
 ```bash
-curl -sS 'http://127.0.0.1:3000/api/audit/paddleocr/jobs/<jobId>/status?token=<pdf-checker-token>'
+curl -sS 'https://pdf-audit.bobochang.cn/api/audit/paddleocr/jobs/<jobId>/status?token=<pdf-checker-token>'
 ```
 
 These endpoints intentionally do not replace the current local upload flow yet. They establish the provider boundary first; the next migration step is to connect object storage, job history, and result artifact persistence.
@@ -292,21 +296,21 @@ The cloud upload endpoints now connect object storage to PaddleOCR submission, a
 
 ### Phase 4: DNS cutover
 
-Only cut over `pdf-audit.bobochang.cn` after cloud OCR parity is verified.
+Cutover is complete: `pdf-audit.bobochang.cn` is served by the Cloudflare Worker custom domain.
 
-Current route:
+Historical route:
 
 ```text
 pdf-audit.bobochang.cn -> Cloudflare Tunnel -> local Mac -> Next.js :3000 -> Python :8787
 ```
 
-Target route:
+Active route:
 
 ```text
 pdf-audit.bobochang.cn -> Cloudflare Worker/Pages/custom origin -> cloud app
 ```
 
-Keep the named Tunnel and LaunchAgent path as rollback until the cloud route has processed real PDFs successfully.
+Do not keep the named Tunnel and LaunchAgent path as production rollback. Use Cloudflare Worker deployment rollback or switch OCR/provider configuration in the cloud if needed.
 
 ## Option Comparison
 
@@ -314,7 +318,7 @@ Keep the named Tunnel and LaunchAgent path as rollback until the cloud route has
 | --- | --- | --- |
 | Cloudflare front door + PaddleOCR | Worker/OpenNext app, object storage, cloud DB, async PaddleOCR-VL OCR | Recommended for true cloud operation |
 | Cloudflare front door + Linux OCR container | Worker/OpenNext app plus a containerized OCR service using Linux-compatible PDF/OCR tools | Best if self-hosted data control matters |
-| Remote macOS OCR host | Move the current Python/Swift service to a hosted Mac and route to it | Lowest OCR-code change, but still machine-based |
+| Remote macOS OCR host | Move the current Python/Swift service to a hosted Mac and route to it | Historical fallback only; not preferred because the current direction is cloud-only |
 | AWS/GCP/Azure provider OCR | Same cloud shape, but OCR goes to a large cloud document-OCR provider | Fallback if PaddleOCR is unsuitable |
 | Vercel/Netlify-only | Host Next.js and keep serverless functions for everything | Not suitable for current OCR and local SQLite/filesystem assumptions |
 
@@ -355,7 +359,7 @@ Minimum checks:
    needs review: 4
    ```
 
-5. Public endpoint validation after DNS cutover:
+5. Public endpoint validation:
 
    ```bash
    curl -I 'https://pdf-audit.bobochang.cn/'
@@ -364,22 +368,15 @@ Minimum checks:
 
 ## Rollback
 
-Before DNS cutover, rollback means continuing to use the existing Tunnel route.
+Production rollback should remain cloud-native:
 
-After DNS cutover, rollback steps:
-
-1. Restore the Cloudflare DNS/route for `pdf-audit.bobochang.cn` to the existing named Tunnel.
-2. Reinstall or restart the local services:
-
-   ```bash
-   ./deploy/local/pdf-audit-service.sh install
-   ./deploy/local/pdf-audit-service.sh status
-   ```
-
-3. Verify:
+1. Use Wrangler/Cloudflare Dashboard deployment rollback to restore the last known-good Worker version.
+2. Keep `pdf-audit.bobochang.cn` bound to the Worker custom domain.
+3. If OCR is failing but the app is healthy, disable new submissions or switch to an alternate cloud OCR provider/configuration.
+4. Verify:
 
    ```bash
-   curl -I 'https://pdf-audit.bobochang.cn/?token=<token>'
+   curl -I 'https://pdf-audit.bobochang.cn/?token=<pdf-checker-token>'
    ```
 
 ## Open Implementation Decisions
@@ -393,6 +390,6 @@ After DNS cutover, rollback steps:
 
 ## Recommendation
 
-Proceed with the Cloudflare front door + object storage + cloud database + PaddleOCR async provider architecture.
+Proceed with the Cloudflare Worker + R2 + D1 + PaddleOCR async provider architecture.
 
-Do not remove the current local macOS OCR service until the cloud OCR adapter has passed parity checks against `投标文件.pdf` and one newly uploaded production PDF.
+Do not use the current local macOS OCR service for business traffic. It can remain in source control as legacy reference code until it is intentionally removed in a later cleanup task.

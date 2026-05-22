@@ -34,7 +34,7 @@
     {
       "binding": "AUDIT_DB",
       "database_name": "pdf-audit-db",
-      "database_id": "replace-with-cloudflare-d1-database-id",
+      "database_id": "c3806fab-143e-4418-ad0c-fe0f88c1780e",
       "migrations_dir": "migrations"
     }
   ],

@@ -1,5 +1,9 @@
 # bobochang.cn 迁移到目标 Cloudflare 账号操作记录
 
+> Historical note: the local named Tunnel described here has been retired for
+> production. Current production traffic for `pdf-audit.bobochang.cn` is served
+> by the Cloudflare Worker `pdf-certificate-expiry-checker`.
+
 本文档记录 `bobochang.cn` 从当前 Cloudflare 账号迁移到目标 Cloudflare 账号，并最终绑定固定访问域名 `pdf-audit.bobochang.cn` 的操作顺序。
 
 ## 当前状态
@@ -118,8 +122,8 @@ dig +short NS bobochang.cn
 检查固定访问域名：
 
 ```bash
-curl -I 'https://pdf-audit.bobochang.cn/?token=l1IueKBAqnPg5Q_OajKcRPMEhXBpJpLo'
-curl -sS 'https://pdf-audit.bobochang.cn/api/audit/history?token=l1IueKBAqnPg5Q_OajKcRPMEhXBpJpLo'
+curl -I 'https://pdf-audit.bobochang.cn/?token=<pdf-checker-token>'
+curl -sS 'https://pdf-audit.bobochang.cn/api/audit/history?token=<pdf-checker-token>'
 ```
 
 预期：

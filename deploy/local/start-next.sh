@@ -9,7 +9,10 @@ export PATH=/Users/a1-6/.local/share/fnm/node-versions/v24.15.0/installation/bin
 export NODE_ENV=production
 export HOSTNAME=127.0.0.1
 export PORT=3000
-export PDF_CHECKER_TOKEN='l1IueKBAqnPg5Q_OajKcRPMEhXBpJpLo'
+if [[ -z "${PDF_CHECKER_TOKEN:-}" ]]; then
+  echo "PDF_CHECKER_TOKEN is required for legacy local startup" >&2
+  exit 1
+fi
 export PYTHON_AUDIT_BASE_URL='http://127.0.0.1:8787'
 
 exec npm run start -- --hostname 127.0.0.1 --port 3000

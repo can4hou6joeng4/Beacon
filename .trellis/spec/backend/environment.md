@@ -6,6 +6,77 @@
 
 ## Environment Variables (Cloudflare Workers)
 
+### Project Production Runtime Contract
+
+#### 1. Scope / Trigger
+
+- Trigger: cloud deployment, DNS routing, Worker secrets, D1/R2 binding changes, or production rollback planning.
+- This project is Cloudflare-only for business runtime. Local macOS services, LaunchAgents, and Cloudflare Tunnel are legacy development/test references, not production targets.
+
+#### 2. Signatures
+
+- Deploy command: `npm run cf:deploy` from `web/`.
+- Worker name: `pdf-certificate-expiry-checker`.
+- Production hostname: `pdf-audit.bobochang.cn`.
+- Required bindings:
+  - D1 binding `AUDIT_DB`.
+  - R2 binding `AUDIT_BUCKET`.
+  - R2 binding `NEXT_INC_CACHE_R2_BUCKET`.
+- Required Worker secrets:
+  - `PDF_CHECKER_TOKEN`.
+  - `PADDLEOCR_API_TOKEN`.
+
+#### 3. Contracts
+
+- `AUDIT_RUNTIME_MODE=paddleocr`.
+- `NEXT_PUBLIC_AUDIT_RUNTIME_MODE=paddleocr`.
+- `AUDIT_DB_DRIVER=d1`.
+- `AUDIT_OBJECT_STORE_DRIVER=r2-binding`.
+- `AUDIT_OBJECT_PREFIX=jobs`.
+- `PADDLEOCR_API_BASE_URL=https://paddleocr.aistudio-app.com/api/v2/ocr`.
+- `PADDLEOCR_MODEL=PaddleOCR-VL-1.5`.
+- `PADDLEOCR_POLL_INTERVAL_MS=5000`.
+
+#### 4. Validation & Error Matrix
+
+| Condition | Required response |
+| --- | --- |
+| Missing `PDF_CHECKER_TOKEN` secret | Cloud requests without a valid token must return `401`; do not hard-code a fallback token |
+| Missing `PADDLEOCR_API_TOKEN` secret | OCR submission must fail closed; never expose provider credentials in response payloads |
+| `AUDIT_DB_DRIVER` is not `d1` in production | Treat as misconfiguration |
+| `AUDIT_OBJECT_STORE_DRIVER` is not `r2-binding` in production | Treat as misconfiguration |
+| DNS points to a Tunnel/local origin | Treat as stale infrastructure and remove/rebind to Worker custom domain |
+
+#### 5. Good/Base/Bad Cases
+
+- Good: `pdf-audit.bobochang.cn` resolves through Cloudflare and unauthenticated requests return `401` from the Worker.
+- Base: Worker deploy succeeds and lists `AUDIT_DB`, `AUDIT_BUCKET`, and `NEXT_INC_CACHE_R2_BUCKET` bindings.
+- Bad: a runbook or script restores `cloudflared`, LaunchAgents, or a local `127.0.0.1:3000` route for production traffic.
+
+#### 6. Tests Required
+
+- Run `npm run test`, `npm run lint`, `npm run build`, and `npm run cf:build` after config changes.
+- Verify the deployed hostname with `curl -I https://pdf-audit.bobochang.cn/`; a `401` without token proves the Worker and auth middleware are active.
+- Verify Wrangler deployment output includes the Worker custom domain and the expected bindings.
+- Search the repository for real secrets before commit.
+
+#### 7. Wrong vs Correct
+
+##### Wrong
+
+```bash
+./deploy/local/pdf-audit-service.sh install
+cloudflared tunnel route dns pdf-certificate-expiry-checker pdf-audit.bobochang.cn
+```
+
+##### Correct
+
+```bash
+cd web
+npm run cf:deploy
+curl -I https://pdf-audit.bobochang.cn/
+```
+
 ### Overview
 
 Environment variables in Cloudflare Workers have unique characteristics compared to traditional Node.js applications. This guide covers best practices, common pitfalls, and solutions specific to Workers runtime.

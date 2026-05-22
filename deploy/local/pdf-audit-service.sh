@@ -75,7 +75,11 @@ case "${1:-}" in
     if [[ -f "$config_file" ]]; then
       host=$(awk '/hostname:/ {print $3; exit}' "$config_file")
       if [[ -n "$host" ]]; then
-        echo "https://$host/?token=${PDF_CHECKER_TOKEN:-l1IueKBAqnPg5Q_OajKcRPMEhXBpJpLo}"
+        if [[ -z "${PDF_CHECKER_TOKEN:-}" ]]; then
+          echo "PDF_CHECKER_TOKEN is required to print a legacy local URL" >&2
+          exit 1
+        fi
+        echo "https://$host/?token=$PDF_CHECKER_TOKEN"
         exit 0
       fi
     fi

@@ -45,11 +45,11 @@ cd /Users/a1-6/Documents/pdf-certificate-expiry-checker
 ./deploy/local/pdf-audit-service.sh stop
 ```
 
-当前已配置 Cloudflare 命名 Tunnel，固定外网入口为：`https://pdf-audit.bobochang.cn/?token=l1IueKBAqnPg5Q_OajKcRPMEhXBpJpLo`。只要本机、网络、后台服务和 Cloudflare Tunnel 正常，外部用户访问地址不会变化。
+当前生产入口已迁移到 Cloudflare Worker 自定义域名：`https://pdf-audit.bobochang.cn/?token=<pdf-checker-token>`。真实访问口令通过 Cloudflare Worker secret `PDF_CHECKER_TOKEN` 管理，不写入仓库文件。
 
 ### 云端迁移规划
 
-如果希望服务脱离本机常驻和 Cloudflare Tunnel，不能直接把当前 Swift OCR 后端原封不动部署到普通 Linux/serverless 云环境，因为 OCR 核心依赖 macOS `PDFKit`、`Vision`、`AppKit`。推荐路径是保留 `pdf-audit.bobochang.cn` 作为 Cloudflare 前门，将 UI/API、文件存储、历史库迁到云端，并把 OCR 改造成 PaddleOCR-VL 异步 adapter；当前本机 OCR 路径保留为验证和回滚基线。
+服务已经按云端优先路径迁移：保留 `pdf-audit.bobochang.cn` 作为 Cloudflare 前门，将 UI/API、文件存储、历史库迁到 Cloudflare Worker/R2/D1，并把 OCR 改造成 PaddleOCR-VL 异步 adapter。当前本机 OCR 路径只作为遗留参考，不再作为生产业务运行或回滚目标。
 
 详细可行性、目标架构、DNS 切换和回滚步骤见：
 

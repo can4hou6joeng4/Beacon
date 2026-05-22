@@ -6,6 +6,9 @@ APP_ROOT=${PDF_AUDIT_APP_ROOT:-/Users/a1-6/Library/Application Support/PdfAuditS
 cd "$APP_ROOT"
 
 export PYTHONPATH=src
-export PDF_CHECKER_TOKEN='l1IueKBAqnPg5Q_OajKcRPMEhXBpJpLo'
+if [[ -z "${PDF_CHECKER_TOKEN:-}" ]]; then
+  echo "PDF_CHECKER_TOKEN is required for legacy local startup" >&2
+  exit 1
+fi
 
 exec /opt/homebrew/bin/python3 run_local.py

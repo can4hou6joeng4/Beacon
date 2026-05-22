@@ -1,10 +1,16 @@
 # Cloudflare 固定外链运行手册
 
+> Historical note: this document records the retired local Mac + Cloudflare
+> Tunnel deployment. The production business runtime is now the Cloudflare
+> Worker custom domain at `pdf-audit.bobochang.cn`. Do not use this runbook to
+> restore production traffic unless a future task explicitly reverses the
+> cloud-only decision.
+
 本文档记录本项目从 `trycloudflare.com` quick tunnel 升级为固定外链的操作流程。
 
 ## 目标
 
-- 本机继续运行 Python OCR 服务和 Next.js 工作台。
+- Historical goal: 本机继续运行 Python OCR 服务和 Next.js 工作台。
 - Cloudflare Tunnel 不再使用随机 quick tunnel 地址。
 - 外部用户使用固定域名访问：`https://pdf-audit.bobochang.cn/?token=...`。
 - 本机不主动关机或重启时，后台服务由 macOS `launchd` 持续托管。
@@ -166,15 +172,15 @@ deploy/local/start-cloudflared.sh
 ### 本机验证
 
 ```bash
-curl -I 'http://127.0.0.1:3000/?token=l1IueKBAqnPg5Q_OajKcRPMEhXBpJpLo'
-curl -sS 'http://127.0.0.1:3000/api/audit/history?token=l1IueKBAqnPg5Q_OajKcRPMEhXBpJpLo'
+curl -I 'http://127.0.0.1:3000/?token=<pdf-checker-token>'
+curl -sS 'http://127.0.0.1:3000/api/audit/history?token=<pdf-checker-token>'
 ```
 
 ### 外网验证
 
 ```bash
-curl -I 'https://pdf-audit.bobochang.cn/?token=l1IueKBAqnPg5Q_OajKcRPMEhXBpJpLo'
-curl -sS 'https://pdf-audit.bobochang.cn/api/audit/history?token=l1IueKBAqnPg5Q_OajKcRPMEhXBpJpLo'
+curl -I 'https://pdf-audit.bobochang.cn/?token=<pdf-checker-token>'
+curl -sS 'https://pdf-audit.bobochang.cn/api/audit/history?token=<pdf-checker-token>'
 ```
 
 预期：
@@ -235,7 +241,7 @@ Clash Verge hosts: pdf-audit.bobochang.cn -> 104.21.15.109, 172.67.162.49
 ```bash
 dig +short pdf-audit.bobochang.cn
 dscacheutil -q host -a name pdf-audit.bobochang.cn
-curl -I 'https://pdf-audit.bobochang.cn/?token=l1IueKBAqnPg5Q_OajKcRPMEhXBpJpLo'
+curl -I 'https://pdf-audit.bobochang.cn/?token=<pdf-checker-token>'
 ```
 
 如果 Clash 订阅更新后覆盖配置，本机再次解析到 `198.18.*` 或解析失败，重新添加上述 fake-ip-filter/hosts，或在 `/etc/hosts` 保留 Cloudflare IP 映射。
@@ -269,8 +275,8 @@ deploy/local/start-cloudflared.sh
 
 ```bash
 cloudflared tunnel info pdf-certificate-expiry-checker
-curl -I 'https://pdf-audit.bobochang.cn/?token=l1IueKBAqnPg5Q_OajKcRPMEhXBpJpLo'
-curl -I 'https://pdf-audit.bobochang.cn/api/audit/history?token=l1IueKBAqnPg5Q_OajKcRPMEhXBpJpLo'
+curl -I 'https://pdf-audit.bobochang.cn/?token=<pdf-checker-token>'
+curl -I 'https://pdf-audit.bobochang.cn/api/audit/history?token=<pdf-checker-token>'
 ```
 
 恢复后的预期：
@@ -295,7 +301,7 @@ curl -I 'https://pdf-audit.bobochang.cn/api/audit/history?token=l1IueKBAqnPg5Q_O
 ## 当前状态记录
 
 - quick tunnel 地址：已切换停用，不再作为主要入口
-- 固定域名：`https://pdf-audit.bobochang.cn/?token=l1IueKBAqnPg5Q_OajKcRPMEhXBpJpLo`
+- 固定域名：`https://pdf-audit.bobochang.cn/?token=<pdf-checker-token>`
 - Tunnel 名称：`pdf-certificate-expiry-checker`
 - Tunnel ID：`04f3dae6-1d71-4eff-b3e4-a90d61464c42`
 - Cloudflare 登录状态：已完成

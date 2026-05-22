@@ -1234,7 +1234,7 @@ Run in one terminal:
 
 ```bash
 cd /Users/a1-6/Documents/pdf-certificate-expiry-checker
-PDF_CHECKER_TOKEN='l1IueKBAqnPg5Q_OajKcRPMEhXBpJpLo' PYTHONPATH=src python3 run_local.py
+PDF_CHECKER_TOKEN='<pdf-checker-token>' PYTHONPATH=src python3 run_local.py
 ```
 
 Expected:
@@ -1247,7 +1247,7 @@ Run in a second terminal:
 
 ```bash
 cd /Users/a1-6/Documents/pdf-certificate-expiry-checker
-PDF_CHECKER_TOKEN='l1IueKBAqnPg5Q_OajKcRPMEhXBpJpLo' PYTHON_AUDIT_BASE_URL='http://127.0.0.1:8787' npm run dev
+PDF_CHECKER_TOKEN='<pdf-checker-token>' PYTHON_AUDIT_BASE_URL='http://127.0.0.1:8787' npm run dev
 ```
 
 Expected:
