@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 4
+- **Total Sessions**: 5
 - **Last Active**: 2026-05-24
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~141 | Active |
+| `journal-1.md` | ~174 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 5 | 2026-05-24 | Complete Trellis bootstrap guidelines | `ac7f504` | `codex/cloud-r2-upload-quota-ui` |
 | 4 | 2026-05-24 | Cloudflare R2 upload, quota, and evidence UI fixes | `6cabfb6` | `codex/cloud-r2-upload-quota-ui` |
 | 3 | 2026-05-23 | Account auth and quota deployment | `7b4440c` | `main` |
 | 2 | 2026-05-23 | Cloudflare-only production deployment | `9d982d3`, `a494588`, `fbcb307` | `main` |

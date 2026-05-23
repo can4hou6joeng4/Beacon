@@ -139,3 +139,36 @@ Implemented Cloudflare R2 binding upload route, Worker-side PaddleOCR multipart 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Complete Trellis bootstrap guidelines
+
+**Date**: 2026-05-24
+**Task**: Complete Trellis bootstrap guidelines
+**Branch**: `codex/cloud-r2-upload-quota-ui`
+
+### Summary
+
+Replaced generic Trellis template specs with project-specific Next.js/OpenNext Cloudflare D1/R2/PaddleOCR conventions.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ac7f504` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
