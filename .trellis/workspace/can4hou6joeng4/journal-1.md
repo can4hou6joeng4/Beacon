@@ -106,3 +106,36 @@ Implemented D1-backed account authentication, admin-only user management, upload
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Cloudflare R2 upload, quota, and evidence UI fixes
+
+**Date**: 2026-05-24
+**Task**: Cloudflare R2 upload, quota, and evidence UI fixes
+**Branch**: `codex/cloud-r2-upload-quota-ui`
+
+### Summary
+
+Implemented Cloudflare R2 binding upload route, Worker-side PaddleOCR multipart submission and quota refunds; fixed validity-date extraction for noisy evidence snippets; updated admin quota UI and enforced 10GB upload plus 2000-page OCR boundaries; deployed version f0c2f418-7cae-432a-93a5-bfd8335b968e and verified production auth quota API.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6cabfb6` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
