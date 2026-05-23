@@ -11,6 +11,7 @@ import {
   siblingObjectKey,
 } from "@/lib/cloud-object-store"
 import { fetchPaddleOcrJobSnapshot, fetchText } from "@/lib/paddleocr"
+import { createPaddleOcrRuntimeConfig } from "@/lib/paddleocr-runtime"
 import { consumeOcrPageQuota } from "@/lib/quota"
 
 export const runtime = "nodejs"
@@ -25,7 +26,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
     if (job.runtime === "paddleocr") {
       if (!job.providerJobId) return NextResponse.json({ error: "PaddleOCR 任务不存在" }, { status: 404 })
-      const snapshot = await fetchPaddleOcrJobSnapshot({ providerJobId: job.providerJobId })
+      const snapshot = await fetchPaddleOcrJobSnapshot({
+        providerJobId: job.providerJobId,
+        config: await createPaddleOcrRuntimeConfig(),
+      })
       let updated = await db.updateFromStatus(id, { status: snapshot.status, message: snapshot.message })
       if (snapshot.status === "complete" && snapshot.jsonUrl && job.objectKey) {
         const config = createCloudObjectStoreConfig()

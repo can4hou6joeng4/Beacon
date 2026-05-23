@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest"
 import {
   assertSafeObjectKey,
   createCloudObjectStoreConfig,
+  fetchCloudObjectBlob,
   createPresignedGetUrl,
   createPresignedPutUrl,
   siblingObjectKey,
   generateAuditObjectKey,
+  putCloudObject,
+  type R2BucketLike,
   validateCloudUploadInput,
 } from "../cloud-object-store"
 
@@ -76,5 +79,53 @@ describe("presigned urls", () => {
 
     expect(get.expiresAt).toBe("2026-05-22T10:00:00.000Z")
     expect(get.url).toContain("X-Amz-Signature=")
+  })
+})
+
+describe("R2 binding helpers", () => {
+  it("writes and reads binary objects through an injected R2 bucket", async () => {
+    const config = createCloudObjectStoreConfig({
+      AUDIT_OBJECT_STORE_DRIVER: "r2-binding",
+      AUDIT_OBJECT_PREFIX: "jobs",
+    })
+    const objects = new Map<string, { value: Blob; contentType?: string }>()
+    const bucket: R2BucketLike = {
+      async put(key, value, options) {
+        const blob = value instanceof Blob ? value : new Blob([value])
+        objects.set(key, { value: blob, contentType: options?.httpMetadata?.contentType })
+      },
+      async get(key) {
+        const object = objects.get(key)
+        if (!object) return null
+        return {
+          size: object.value.size,
+          httpMetadata: { contentType: object.contentType },
+          text: () => object.value.text(),
+          blob: () => Promise.resolve(object.value),
+        }
+      },
+    }
+
+    await putCloudObject({
+      objectKey: "jobs/job-123/input.pdf",
+      content: new Blob(["pdf-bytes"], { type: "application/pdf" }),
+      contentType: "application/pdf",
+      config,
+      bucket,
+    })
+
+    const object = await fetchCloudObjectBlob({
+      objectKey: "jobs/job-123/input.pdf",
+      config,
+      bucket,
+      fallbackContentType: "application/pdf",
+    })
+
+    expect(object).toMatchObject({
+      objectKey: "jobs/job-123/input.pdf",
+      contentType: "application/pdf",
+      size: 9,
+    })
+    await expect(object.blob.text()).resolves.toBe("pdf-bytes")
   })
 })

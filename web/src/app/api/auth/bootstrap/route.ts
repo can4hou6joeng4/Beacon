@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { jsonError } from "@/lib/api-response"
 import { bootstrapAdmin, verifyBootstrapRequest } from "@/lib/auth"
 import type { CreateUserInput } from "@/lib/auth-types"
+import { DEFAULT_OCR_JOB_QUOTA, DEFAULT_OCR_PAGE_QUOTA, DEFAULT_UPLOAD_QUOTA_BYTES } from "@/lib/quota-limits"
 
 export const runtime = "nodejs"
 
@@ -14,9 +15,9 @@ type BootstrapPayload = {
 }
 
 const DEFAULT_ADMIN_QUOTA: CreateUserInput["quota"] = {
-  uploadBytesLimit: 10 * 1024 * 1024 * 1024,
-  ocrJobsLimit: 1000,
-  ocrPagesLimit: 100000,
+  uploadBytesLimit: DEFAULT_UPLOAD_QUOTA_BYTES,
+  ocrJobsLimit: DEFAULT_OCR_JOB_QUOTA,
+  ocrPagesLimit: DEFAULT_OCR_PAGE_QUOTA,
 }
 
 export async function POST(request: Request) {

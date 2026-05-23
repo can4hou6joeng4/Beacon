@@ -35,7 +35,12 @@ export async function POST(request: Request) {
       uploadBytes: input.size,
     })
     await reserveUploadQuota({ context, jobId: job.id, bytes: input.size })
-    const upload = createPresignedPutUrl({ objectKey, contentType: input.contentType, config })
+    const upload = config.driver === "r2-binding"
+      ? {
+          url: `/api/audit/cloud-uploads/${encodeURIComponent(job.id)}/file`,
+          expiresAt: new Date(Date.now() + config.uploadExpiresSeconds * 1000).toISOString(),
+        }
+      : createPresignedPutUrl({ objectKey, contentType: input.contentType, config })
 
     return NextResponse.json({
       jobId: job.id,

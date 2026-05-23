@@ -137,18 +137,24 @@ export async function verifyToken(
 | Password below minimum length | `400` from user creation/bootstrap |
 | Upload quota exhausted | Reject cloud upload creation before reserving storage |
 | OCR job/page quota exhausted | Reject or refund according to the ledger action already recorded |
+| Admin upload quota above Cloudflare R2 free storage baseline | `400` with `UPLOAD_QUOTA_LIMIT_EXCEEDED` |
+| Admin OCR page quota above PaddleOCR daily PDF page limit | `400` with `OCR_PAGE_LIMIT_EXCEEDED` |
 
 #### 5. Good/Base/Bad Cases
 
 - Good: admin logs in, creates a user with quotas, and each new job persists a matching `user_id` and ledger rows.
 - Base: unauthenticated `/api/auth/me` returns `401`; authenticated `/api/auth/me` returns the user and quota snapshot.
 - Bad: accepting a query-string shared token, storing a raw session token, or writing quota usage without a ledger entry.
+- Bad: letting an admin set upload quota above the 10GB R2 free storage
+  baseline or OCR page quota above the 2,000-page PaddleOCR daily limit.
 
 #### 6. Tests Required
 
 - Unit tests for password hashing, token hashing, and the Cloudflare-compatible PBKDF2 iteration limit.
 - Unit tests for auth DB create/login/session and quota ledger math.
 - Ownership tests for history, result, status, and download paths.
+- Quota validation tests for rejecting upload limits above 10GB and OCR page
+  limits above 2,000 pages.
 - Production smoke test after deploy: login with an admin account and call `/api/auth/me` using the returned cookie.
 
 #### 7. Wrong vs Correct
@@ -165,6 +171,78 @@ const sessionToken = tokenFromDatabase
 ```typescript
 export const PASSWORD_ITERATIONS = 100_000
 const sessionTokenHash = await hashToken(rawSessionToken)
+```
+
+### Project Quota Boundary Contract
+
+#### 1. Scope / Trigger
+
+- Trigger: admin user creation/update, bootstrap admin defaults, and any UI that
+  displays upload/OCR quota.
+- The MVP quota ledger is lifetime-based, but configured limits must still stay
+  inside the external free/provider limits currently used by production.
+
+#### 2. Signatures
+
+- Shared constants: `src/lib/quota-limits.ts`
+  - `DEFAULT_UPLOAD_QUOTA_BYTES`
+  - `DEFAULT_UPLOAD_QUOTA_MB`
+  - `DEFAULT_OCR_JOB_QUOTA`
+  - `DEFAULT_OCR_PAGE_QUOTA`
+  - `MAX_UPLOAD_QUOTA_BYTES`
+  - `MAX_OCR_PAGE_QUOTA`
+- Validation entry point: `normalizeQuota(...)` in `src/lib/auth.ts`.
+
+#### 3. Contracts
+
+- Upload quota maximum: 10GB, matching the Cloudflare R2 free Standard storage
+  baseline used for this project.
+- OCR page quota maximum: 2,000 pages, matching the PaddleOCR daily PDF parsing
+  limit.
+- Default user/bootstrap quota:
+  - upload: 10GB,
+  - OCR jobs: 25,
+  - OCR pages: 2,000.
+- The admin UI must import these constants instead of duplicating numeric
+  literals.
+
+#### 4. Validation & Error Matrix
+
+| Condition | Required response |
+| --- | --- |
+| `uploadBytesLimit > MAX_UPLOAD_QUOTA_BYTES` | `400`, `UPLOAD_QUOTA_LIMIT_EXCEEDED` |
+| `ocrPagesLimit > MAX_OCR_PAGE_QUOTA` | `400`, `OCR_PAGE_LIMIT_EXCEEDED` |
+| negative or non-integer quota value | `400`, `INVALID_QUOTA` |
+
+#### 5. Good/Base/Bad Cases
+
+- Good: admin creates a user with 10GB upload, 25 OCR jobs, and 2,000 OCR pages.
+- Base: admin lowers a user's quota below current usage; remaining quota is
+  clamped to zero by the existing snapshot math.
+- Bad: hardcoding `100000` OCR pages in bootstrap or UI defaults.
+
+#### 6. Tests Required
+
+- Unit tests call `createUser(...)` and assert that above-limit upload and OCR
+  page values reject with the specific error codes.
+- Production smoke test after deployment calls `/api/auth/me` and confirms
+  existing admin quota is migrated to the new boundary.
+
+#### 7. Wrong vs Correct
+
+##### Wrong
+
+```typescript
+const DEFAULT_ADMIN_QUOTA = { ocrPagesLimit: 100000 }
+```
+
+##### Correct
+
+```typescript
+const DEFAULT_ADMIN_QUOTA = {
+  uploadBytesLimit: DEFAULT_UPLOAD_QUOTA_BYTES,
+  ocrPagesLimit: DEFAULT_OCR_PAGE_QUOTA,
+}
 ```
 
 ### Session Table Schema

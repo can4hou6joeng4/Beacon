@@ -22,9 +22,27 @@ export type PresignedObjectUrl = {
   expiresAt: string
 }
 
-type R2BucketLike = {
-  put(key: string, value: string | ReadableStream | ArrayBuffer | Blob, options?: { httpMetadata?: { contentType?: string } }): Promise<unknown>
-  get(key: string): Promise<{ text(): Promise<string> } | null>
+type CloudObjectPayload = string | ReadableStream | ArrayBuffer | Blob
+
+export type R2ObjectBodyLike = {
+  size?: number
+  body?: ReadableStream | null
+  httpMetadata?: { contentType?: string }
+  text(): Promise<string>
+  arrayBuffer?(): Promise<ArrayBuffer>
+  blob?(): Promise<Blob>
+}
+
+export type R2BucketLike = {
+  put(key: string, value: CloudObjectPayload, options?: { httpMetadata?: { contentType?: string } }): Promise<unknown>
+  get(key: string): Promise<R2ObjectBodyLike | null>
+}
+
+export type CloudObjectBlob = {
+  objectKey: string
+  blob: Blob
+  contentType: string
+  size: number
 }
 
 type CloudflareBindings = {
@@ -133,7 +151,25 @@ export async function putCloudObjectText(input: {
   config: CloudObjectStoreConfig
   fetcher?: typeof fetch
 }): Promise<void> {
-  const bucket = await getR2Binding(input.config)
+  await putCloudObject({
+    objectKey: input.objectKey,
+    content: input.content,
+    contentType: input.contentType,
+    config: input.config,
+    fetcher: input.fetcher,
+  })
+}
+
+export async function putCloudObject(input: {
+  objectKey: string
+  content: CloudObjectPayload
+  contentType: string
+  config: CloudObjectStoreConfig
+  fetcher?: typeof fetch
+  bucket?: R2BucketLike
+}): Promise<void> {
+  assertSafeObjectKey(input.objectKey, input.config.prefix)
+  const bucket = input.bucket ?? await getR2Binding(input.config)
   if (bucket) {
     await bucket.put(input.objectKey, input.content, { httpMetadata: { contentType: input.contentType } })
     return
@@ -159,8 +195,10 @@ export async function fetchCloudObjectText(input: {
   objectKey: string
   config: CloudObjectStoreConfig
   fetcher?: typeof fetch
+  bucket?: R2BucketLike
 }): Promise<string> {
-  const bucket = await getR2Binding(input.config)
+  assertSafeObjectKey(input.objectKey, input.config.prefix)
+  const bucket = input.bucket ?? await getR2Binding(input.config)
   if (bucket) {
     const object = await bucket.get(input.objectKey)
     if (!object) throw new Error("Object artifact not found")
@@ -174,6 +212,44 @@ export async function fetchCloudObjectText(input: {
     throw new Error(`Object artifact download failed: ${response.status}`)
   }
   return response.text()
+}
+
+export async function fetchCloudObjectBlob(input: {
+  objectKey: string
+  config: CloudObjectStoreConfig
+  fetcher?: typeof fetch
+  bucket?: R2BucketLike
+  fallbackContentType?: string
+}): Promise<CloudObjectBlob> {
+  assertSafeObjectKey(input.objectKey, input.config.prefix)
+  const bucket = input.bucket ?? await getR2Binding(input.config)
+  if (bucket) {
+    const object = await bucket.get(input.objectKey)
+    if (!object) throw new Error("Object artifact not found")
+    const contentType = object.httpMetadata?.contentType || input.fallbackContentType || "application/octet-stream"
+    const blob = await r2ObjectToBlob(object, contentType)
+    return {
+      objectKey: input.objectKey,
+      blob,
+      contentType,
+      size: object.size ?? blob.size,
+    }
+  }
+
+  const download = createPresignedGetUrl({ objectKey: input.objectKey, config: input.config })
+  const fetcher = input.fetcher ?? fetch
+  const response = await fetcher(download.url, { method: "GET" })
+  if (!response.ok) {
+    throw new Error(`Object artifact download failed: ${response.status}`)
+  }
+  const contentType = response.headers.get("content-type") || input.fallbackContentType || "application/octet-stream"
+  const blob = await response.blob()
+  return {
+    objectKey: input.objectKey,
+    blob,
+    contentType,
+    size: blob.size,
+  }
 }
 
 export function siblingObjectKey(input: { objectKey: string; filename: string; prefix: string }): string {
@@ -270,6 +346,22 @@ async function getR2Binding(config: CloudObjectStoreConfig): Promise<R2BucketLik
     if (process.env.NODE_ENV === "test") return null
     throw error
   }
+}
+
+async function r2ObjectToBlob(object: R2ObjectBodyLike, contentType: string): Promise<Blob> {
+  if (object.blob) {
+    const blob = await object.blob()
+    return blob.type ? blob : new Blob([blob], { type: contentType })
+  }
+  if (object.arrayBuffer) {
+    return new Blob([await object.arrayBuffer()], { type: contentType })
+  }
+  if (object.body) {
+    const response = new Response(object.body)
+    const blob = await response.blob()
+    return blob.type ? blob : new Blob([blob], { type: contentType })
+  }
+  return new Blob([await object.text()], { type: contentType })
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {

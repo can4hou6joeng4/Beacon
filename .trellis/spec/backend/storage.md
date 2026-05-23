@@ -535,6 +535,92 @@ Access via `c.env.R2_BUCKET` in handlers.
 
 ---
 
+## Scenario: PDF Audit R2-Binding Uploads and PaddleOCR File Submission
+
+### 1. Scope / Trigger
+
+- Trigger: PDF audit production storage runs in Cloudflare Workers with
+  `AUDIT_OBJECT_STORE_DRIVER=r2-binding`.
+- Do not generate S3 presigned URLs in binding mode. A binding-only deployment
+  has no S3 endpoint or access-key config, so presigned URL code can fail after
+  a job and quota reservation have already been created.
+
+### 2. Signatures
+
+- `POST /api/audit/cloud-uploads`
+  - Creates the audit job and returns a same-origin upload route.
+- `PUT /api/audit/cloud-uploads/{jobId}/file`
+  - Streams the browser PDF body through the Worker into `AUDIT_BUCKET`.
+- `POST /api/audit/cloud-uploads/paddleocr`
+  - Reads the private R2 object through `AUDIT_BUCKET.get(...)` and submits it
+    to PaddleOCR multipart file mode.
+- Download route in binding mode streams artifacts from R2 through the Worker.
+
+### 3. Contracts
+
+- `POST /api/audit/cloud-uploads` response in binding mode:
+  - `uploadUrl`: `/api/audit/cloud-uploads/{jobId}/file`
+  - `method`: `PUT`
+  - `headers`: same-origin upload headers only; no R2 credentials.
+- `PUT /api/audit/cloud-uploads/{jobId}/file` requires:
+  - authenticated session,
+  - job ownership,
+  - job `objectKey` match,
+  - PDF content type,
+  - size equal to the job's reserved `uploadBytes`.
+- PaddleOCR file submission requires `PADDLEOCR_API_TOKEN` from runtime env and
+  must not expose provider tokens, file bytes, or private object URLs to the
+  browser.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Unauthenticated upload or submit | `401` JSON |
+| Job does not belong to current user | `404` or ownership-safe failure |
+| Uploaded content is not a PDF | fail the job and refund upload quota once |
+| Uploaded byte size differs from reserved size | fail the job and refund upload quota once |
+| R2 `put` fails | fail the job and refund upload quota once |
+| PaddleOCR submission fails | fail the job and refund OCR job quota once |
+| PaddleOCR returns `401` | return `PADDLEOCR_UNAUTHORIZED` with user-safe message |
+
+### 5. Good/Base/Bad Cases
+
+- Good: browser uploads PDF to the same-origin Worker route; Worker writes to
+  R2 binding; Worker later reads the private object and submits multipart file
+  mode to PaddleOCR.
+- Base: r2-s3 compatibility mode may keep presigned URL behavior if S3 config is
+  explicitly present.
+- Bad: returning an R2 public URL, using S3 presigning in r2-binding mode, or
+  leaving queued jobs with reserved quota after upload-target creation fails.
+
+### 6. Tests Required
+
+- Unit tests for binding-mode `putCloudObject` and `fetchCloudObjectBlob`.
+- Route or service tests for upload quota refund on failed object upload.
+- PaddleOCR tests for multipart file request construction and `401` mapping.
+- Production smoke test after deploy: create upload session, `PUT` a PDF to the
+  returned same-origin route, and confirm the upload route returns `200`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+const uploadUrl = await createPresignedPutUrl(objectKey)
+```
+
+#### Correct
+
+```typescript
+return {
+  uploadUrl: `/api/audit/cloud-uploads/${job.id}/file`,
+  method: "PUT",
+}
+```
+
+---
+
 ## KV Storage (Quick Reference)
 
 For key-value storage needs:

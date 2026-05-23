@@ -1,4 +1,5 @@
 import type { AuditResult, AuditRow, AuditSummary } from "./audit-types"
+import { cleanEvidenceText } from "./evidence-text"
 import { paddleOcrMarkdownPagesToOcrText, parsePaddleOcrJsonlMarkdown } from "./paddleocr"
 
 type OcrPages = {
@@ -14,6 +15,18 @@ const VALIDITY_MARKER =
   /有\s*(?:效|[A-Za-z]{1,3}|贿|B)\s*(?:期|限|FA)|有\s*效\s*贿\s*限|有\s*效\s*期\s*限|注册\s*有\s*效\s*期|有\s*效\s*期\s*至|效\s*期|效\s*期\s*限|有效期報|有效期燉/
 const DOCUMENT_USE_VALIDITY_MARKER = /(?:使用|用|吏用|史用|更用)\s*有\s*效\s*期/
 const PRIMARY_COST_CERTIFICATE_MARKER = /一级\s*(?:注册)?\s*造价\s*(?:工程师)?\s*注册?\s*证/
+const FIELD_BOUNDARY = "\n"
+
+type DateMatch = {
+  start: number
+  end: number
+  value: Date
+}
+
+type ValidityMarkerMatch = {
+  index: number
+  length: number
+}
 
 export function analyzePaddleOcrJsonl(input: { jobId: string; cutoff: string; jsonl: string }): {
   result: AuditResult
@@ -89,10 +102,11 @@ function analyzeOcrPages(ocrPages: OcrPages, cutoff: string, nearDays = 45): {
       const contextLines = DOCUMENT_USE_VALIDITY_MARKER.test(line)
         ? lines.slice(index, Math.min(lines.length, index + 4))
         : lines.slice(Math.max(0, index - 1), Math.min(lines.length, index + 6))
-      const context = contextLines.join(" ")
+      const context = contextLines.join(FIELD_BOUNDARY)
       if (/条形码|二维码|查验部门|核查网页|本条形码/.test(context)) return
-      const fieldContext = validitySegment(context)
-      const expiry = extractExpiryFromContext(context)
+      const focusOffset = contextLines.slice(0, index - Math.max(0, index - (DOCUMENT_USE_VALIDITY_MARKER.test(line) ? 0 : 1))).join(FIELD_BOUNDARY).length
+      const fieldContext = validitySegment(context, focusOffset)
+      const expiry = extractExpiryFromContext(context, focusOffset)
       const row: AuditRow = {
         page,
         title,
@@ -148,19 +162,20 @@ function analyzeOcrPages(ocrPages: OcrPages, cutoff: string, nearDays = 45): {
   return { summary, matches, near_expiry: nearExpiry, needs_review: needsReview, candidates }
 }
 
-function extractExpiryFromContext(context: string): string | null {
-  const segment = validitySegment(context)
+function extractExpiryFromContext(context: string, focusOffset = 0): string | null {
+  const segment = validitySegment(context, focusOffset)
   if (segment.replace(/\s/g, "").includes("长期")) return "长期"
-  const dates = findDates(segment)
-  const lastDate = dates.at(-1)
-  return lastDate ? formatDate(lastDate) : null
+  const dates = findDateMatches(segment)
+  if (dates.length === 0) return null
+  const selected = shouldUseRangeEnd(segment, dates) ? dates[dates.length - 1] : dates[0]
+  return selected ? formatDate(selected.value) : null
 }
 
-function validitySegment(context: string): string {
-  const marker = VALIDITY_MARKER.exec(context)
-  VALIDITY_MARKER.lastIndex = 0
+function validitySegment(context: string, focusOffset = 0): string {
+  const normalized = normalizeEvidenceForAnalysis(context)
+  const marker = findValidityMarker(normalized, focusOffset)
   if (!marker) return context
-  const segment = context.slice(marker.index)
+  const segment = normalized.slice(marker.index)
   const stops = [
     /\s中华人民共和国/,
     /\s一级\s*造价\s*工程师\s*注册\s*证书/,
@@ -176,12 +191,61 @@ function validitySegment(context: string): string {
     const stop = stopPattern.exec(segment)
     if (stop) cut = Math.min(cut, stop.index)
   }
-  return segment.slice(0, cut)
+  const nextMarker = findNextValidityMarkerIndex(segment, marker.length)
+  if (nextMarker !== null) cut = Math.min(cut, nextMarker)
+
+  const bounded = segment.slice(0, cut)
+  return trimAfterFirstCompleteLine(bounded).trim()
 }
 
-function findDates(text: string): Date[] {
+function normalizeEvidenceForAnalysis(text: string): string {
+  return cleanEvidenceText(text).replace(/\n{2,}/g, "\n")
+}
+
+function findValidityMarker(text: string, startIndex = 0): ValidityMarkerMatch | null {
+  const searchable = text.slice(Math.max(0, startIndex))
+  const useMarker = DOCUMENT_USE_VALIDITY_MARKER.exec(searchable)
+  DOCUMENT_USE_VALIDITY_MARKER.lastIndex = 0
+  const genericMarker = VALIDITY_MARKER.exec(searchable)
+  VALIDITY_MARKER.lastIndex = 0
+  if (useMarker && (!genericMarker || (useMarker.index ?? 0) <= (genericMarker.index ?? 0))) {
+    return { index: Math.max(0, startIndex) + (useMarker.index ?? 0), length: useMarker[0]?.length ?? 0 }
+  }
+  if (!genericMarker) return null
+  return { index: Math.max(0, startIndex) + (genericMarker.index ?? 0), length: genericMarker[0]?.length ?? 0 }
+}
+
+function findNextValidityMarkerIndex(segment: string, offset: number): number | null {
+  const tail = segment.slice(offset)
+  const next = findValidityMarker(tail)
+  if (!next) return null
+  return offset + next.index
+}
+
+function trimAfterFirstCompleteLine(segment: string): string {
+  const lines = segment.split(/\n+/)
+  const kept: string[] = []
+  for (const line of lines) {
+    const value = line.trim()
+    if (!value) continue
+    kept.push(value)
+    if (value.replace(/\s/g, "").includes("长期") || findDateMatches(value).length > 0) break
+  }
+  return kept.length > 0 ? kept.join(" ") : segment
+}
+
+function shouldUseRangeEnd(segment: string, dates: DateMatch[]): boolean {
+  if (dates.length < 2) return false
+  const first = dates[0]
+  const last = dates[dates.length - 1]
+  if (!first || !last) return false
+  const between = segment.slice(first.end, last.start)
+  return /(?:至|到|止|自|起|—|–|－|-|~|～)/.test(between)
+}
+
+function findDateMatches(text: string): DateMatch[] {
   const normalized = text.replace(/(20\d{2}\s*[.。:\-]\s*\d{1,2})\s+(\d{1,2})(?!\d)/g, "$1.$2")
-  const found: Array<{ start: number; end: number; value: Date }> = []
+  const found: DateMatch[] = []
   for (const regex of [DATE_CN, DATE_DOT, DATE_COMPACT_TAIL, DATE_COMPACT]) {
     regex.lastIndex = 0
     for (const match of normalized.matchAll(regex)) {
@@ -192,7 +256,7 @@ function findDates(text: string): Date[] {
       if (dt) found.push({ start, end, value: dt })
     }
   }
-  return found.sort((left, right) => left.start - right.start).map((item) => item.value)
+  return found.sort((left, right) => left.start - right.start)
 }
 
 function safeDate(year: string, month: string, day: string): Date | null {

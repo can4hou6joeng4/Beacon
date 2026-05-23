@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { AuditResult, AuditRow } from "@/lib/audit-types"
+import { cleanEvidenceText, evidenceLines } from "@/lib/evidence-text"
 
 type ResultTabKey = "matches" | "near" | "valid" | "review" | "all"
 
@@ -44,6 +45,10 @@ function filterRows(rows: AuditRow[], query: string) {
   return rows.filter((row) => rowSearchText(row).includes(keyword))
 }
 
+function evidenceText(row: AuditRow): string {
+  return cleanEvidenceText(row.field_context || row.context || row.reason || "")
+}
+
 function detailTone(row: AuditRow, result: AuditResult) {
   const key = rowKey(row)
   if (result.matches.some((item) => rowKey(item) === key)) return { label: "早于截止", variant: "destructive" as const, icon: AlertTriangle, className: "text-destructive" }
@@ -77,11 +82,15 @@ function ResultRows({ rows, onOpen }: { rows: AuditRow[]; onOpen: (row: AuditRow
           {rows.map((row, index) => (
             <TableRow key={`${row.page}-${index}`}>
               <TableCell>{row.page}</TableCell>
-              <TableCell className="font-medium">{rowLabel(row)}</TableCell>
+              <TableCell className="max-w-72 whitespace-normal font-medium">
+                <span className="line-clamp-2 break-words">{rowLabel(row)}</span>
+              </TableCell>
               <TableCell>
                 <Badge variant={row.expiry_date ? "secondary" : "outline"}>{row.expiry_date || "待复核"}</Badge>
               </TableCell>
-              <TableCell className="max-w-xl text-muted-foreground">{row.field_context || row.context || row.reason}</TableCell>
+              <TableCell className="max-w-[42rem] whitespace-normal text-muted-foreground">
+                <EvidencePreview text={evidenceText(row)} />
+              </TableCell>
               <TableCell>
                 <Button variant="outline" size="sm" onClick={() => onOpen(row)}>
                   查看
@@ -91,6 +100,14 @@ function ResultRows({ rows, onOpen }: { rows: AuditRow[]; onOpen: (row: AuditRow
           ))}
         </TableBody>
       </Table>
+    </div>
+  )
+}
+
+function EvidencePreview({ text }: { text: string }) {
+  return (
+    <div className="max-h-12 overflow-hidden text-sm leading-6">
+      <span className="line-clamp-2 break-words">{text || "无证据片段"}</span>
     </div>
   )
 }
@@ -242,16 +259,12 @@ function RecordDialogContent({ row, result }: { row: AuditRow; result: AuditResu
         <div className="space-y-4">
           <section>
             <div className="mb-2 font-semibold">字段片段</div>
-            <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-3 leading-6 text-muted-foreground">
-              {row.field_context || row.context || "无字段片段"}
-            </div>
+            <ReadableTextBlock text={row.field_context || row.context || "无字段片段"} className="max-h-44" />
           </section>
 
           <section>
             <div className="mb-2 font-semibold">OCR 上下文</div>
-            <div className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-3 leading-6 text-muted-foreground">
-              {row.context || "无 OCR 上下文"}
-            </div>
+            <ReadableTextBlock text={row.context || "无 OCR 上下文"} className="max-h-72" />
           </section>
 
           {row.items?.length ? (
@@ -271,5 +284,21 @@ function RecordDialogContent({ row, result }: { row: AuditRow; result: AuditResu
         </div>
       </div>
     </>
+  )
+}
+
+function ReadableTextBlock({ text, className }: { text: string; className?: string }) {
+  const lines = evidenceLines(text)
+  const visibleLines = lines.length > 0 ? lines : ["无内容"]
+  return (
+    <div className={`overflow-y-auto rounded-md border bg-muted/40 p-3 text-muted-foreground ${className ?? ""}`}>
+      <div className="space-y-2">
+        {visibleLines.map((line, index) => (
+          <p key={`${line}-${index}`} className="break-words leading-6">
+            {line}
+          </p>
+        ))}
+      </div>
+    </div>
   )
 }

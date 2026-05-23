@@ -1,4 +1,5 @@
 import type { AuditStatusValue } from "./audit-types"
+import { AppError } from "./app-error"
 
 export type PaddleOcrState = "pending" | "running" | "done" | "failed"
 
@@ -45,7 +46,7 @@ type Env = Record<string, string | undefined>
 export function createPaddleOcrConfig(env: Env = process.env): PaddleOcrConfig {
   return {
     apiBaseUrl: normalizeBaseUrl(env.PADDLEOCR_API_BASE_URL || DEFAULT_API_BASE_URL),
-    apiToken: env.PADDLEOCR_API_TOKEN || "",
+    apiToken: normalizeApiToken(env.PADDLEOCR_API_TOKEN || ""),
     model: env.PADDLEOCR_MODEL || DEFAULT_MODEL,
     pollIntervalMs: parsePositiveInt(env.PADDLEOCR_POLL_INTERVAL_MS, DEFAULT_POLL_INTERVAL_MS),
     optionalPayload: {
@@ -75,6 +76,29 @@ export function buildPaddleOcrUrlJobRequest(input: { fileUrl: string; config: Pa
   }
 }
 
+export function buildPaddleOcrFileJobRequest(input: {
+  file: Blob
+  filename: string
+  config: PaddleOcrConfig
+}): { url: string; headers: Record<string, string>; body: FormData } {
+  assertPaddleOcrToken(input.config)
+  if (input.file.size < 1) {
+    throw new Error("PaddleOCR file mode requires a non-empty file")
+  }
+  const body = new FormData()
+  const file = input.file.type ? input.file : new Blob([input.file], { type: "application/pdf" })
+  body.append("file", file, input.filename)
+  body.append("model", input.config.model)
+  body.append("optionalPayload", JSON.stringify(input.config.optionalPayload))
+  return {
+    url: `${input.config.apiBaseUrl}/jobs`,
+    headers: {
+      Authorization: `bearer ${input.config.apiToken}`,
+    },
+    body,
+  }
+}
+
 export async function submitPaddleOcrUrlJob(input: {
   fileUrl: string
   config?: PaddleOcrConfig
@@ -89,6 +113,24 @@ export async function submitPaddleOcrUrlJob(input: {
     body: JSON.stringify(request.body),
   })
   const payload = await readResponseJson(response, "PaddleOCR job submission failed")
+  return { providerJobId: parsePaddleOcrJobId(payload) }
+}
+
+export async function submitPaddleOcrFileJob(input: {
+  file: Blob
+  filename: string
+  config?: PaddleOcrConfig
+  fetcher?: Fetcher
+}): Promise<{ providerJobId: string }> {
+  const config = input.config ?? createPaddleOcrConfig()
+  const request = buildPaddleOcrFileJobRequest({ file: input.file, filename: input.filename, config })
+  const fetcher = input.fetcher ?? fetch
+  const response = await fetcher(request.url, {
+    method: "POST",
+    headers: request.headers,
+    body: request.body,
+  })
+  const payload = await readResponseJson(response, "PaddleOCR file job submission failed")
   return { providerJobId: parsePaddleOcrJobId(payload) }
 }
 
@@ -196,6 +238,10 @@ function normalizeBaseUrl(value: string): string {
   return value.replace(/\/+$/, "")
 }
 
+function normalizeApiToken(value: string): string {
+  return value.trim().replace(/^bearer\s+/i, "").trim()
+}
+
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   if (!value) return fallback
   const parsed = Number(value)
@@ -218,6 +264,12 @@ function assertPaddleOcrToken(config: PaddleOcrConfig): void {
 async function readResponseJson(response: Response, fallbackMessage: string): Promise<unknown> {
   const payload = (await response.json().catch(() => null)) as unknown
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new AppError("PaddleOCR 鉴权失败：PADDLEOCR_API_TOKEN 无效、过期或未授权当前接口", {
+        status: 502,
+        code: "PADDLEOCR_UNAUTHORIZED",
+      })
+    }
     const data = isRecord(payload) ? payload : {}
     const message = typeof data.message === "string" ? data.message : fallbackMessage
     throw new Error(`${message}: ${response.status}`)

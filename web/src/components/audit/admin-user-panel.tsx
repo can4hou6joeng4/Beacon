@@ -1,14 +1,22 @@
 "use client"
 
-import { CheckCircle2, RefreshCw, Save, UserPlus, XCircle } from "lucide-react"
+import { CheckCircle2, Database, HardDrive, RefreshCw, Save, UserPlus, XCircle } from "lucide-react"
 import { FormEvent, useEffect, useMemo, useState } from "react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import type { CreateUserInput, PublicUser, UserRole, UserStatus } from "@/lib/auth-types"
+import {
+  BYTES_PER_MEGABYTE,
+  CLOUDFLARE_D1_FREE_ROWS_READ_DAY,
+  CLOUDFLARE_D1_FREE_ROWS_WRITTEN_DAY,
+  DEFAULT_OCR_JOB_QUOTA,
+  DEFAULT_OCR_PAGE_QUOTA,
+  DEFAULT_UPLOAD_QUOTA_MB,
+  PADDLEOCR_DAILY_PDF_PAGE_LIMIT,
+} from "@/lib/quota-limits"
 
 type UsersPayload = {
   users?: PublicUser[]
@@ -44,9 +52,9 @@ const DEFAULT_CREATE_FORM: CreateFormState = {
   name: "",
   password: "",
   role: "user",
-  uploadMb: "1024",
-  ocrJobs: "25",
-  ocrPages: "2000",
+  uploadMb: String(DEFAULT_UPLOAD_QUOTA_MB),
+  ocrJobs: String(DEFAULT_OCR_JOB_QUOTA),
+  ocrPages: String(DEFAULT_OCR_PAGE_QUOTA),
 }
 
 export function AdminUserPanel({ currentUser }: { currentUser: PublicUser }) {
@@ -218,19 +226,29 @@ export function AdminUserPanel({ currentUser }: { currentUser: PublicUser }) {
                 <option value="admin">管理员</option>
               </select>
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="admin-upload">上传 MB</Label>
-              <Input id="admin-upload" type="number" min={0} value={form.uploadMb} onChange={(event) => setForm({ ...form, uploadMb: event.target.value })} required />
-            </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-2">
-              <Label htmlFor="admin-jobs">OCR 任务</Label>
-              <Input id="admin-jobs" type="number" min={0} value={form.ocrJobs} onChange={(event) => setForm({ ...form, ocrJobs: event.target.value })} required />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="admin-pages">OCR 页</Label>
-              <Input id="admin-pages" type="number" min={0} value={form.ocrPages} onChange={(event) => setForm({ ...form, ocrPages: event.target.value })} required />
+          <div className="grid gap-2 rounded-md border bg-muted/20 p-2">
+            <QuotaNumberField
+              id="admin-upload"
+              label="上传 MB"
+              value={form.uploadMb}
+              max={DEFAULT_UPLOAD_QUOTA_MB}
+              onChange={(value) => setForm({ ...form, uploadMb: value })}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <QuotaNumberField
+                id="admin-jobs"
+                label="OCR 任务"
+                value={form.ocrJobs}
+                onChange={(value) => setForm({ ...form, ocrJobs: value })}
+              />
+              <QuotaNumberField
+                id="admin-pages"
+                label="OCR 页"
+                value={form.ocrPages}
+                max={PADDLEOCR_DAILY_PDF_PAGE_LIMIT}
+                onChange={(value) => setForm({ ...form, ocrPages: value })}
+              />
             </div>
           </div>
           <Button type="submit" className="bg-[#176b87] hover:bg-[#145d75]" disabled={isCreating}>
@@ -240,81 +258,121 @@ export function AdminUserPanel({ currentUser }: { currentUser: PublicUser }) {
         </div>
       </form>
 
-      <div className="rounded-md border bg-background dark:bg-card">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>用户</TableHead>
-              <TableHead>额度</TableHead>
-              <TableHead className="text-right">操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {users.map((user) => {
-              const edit = edits[user.id] ?? userToEdit(user)
-              const isSelf = user.id === currentUser.id
-              return (
-                <TableRow key={user.id}>
-                  <TableCell className="min-w-44 align-top">
-                    <div className="space-y-2">
-                      <Input value={edit.name} onChange={(event) => updateEdit(user.id, { name: event.target.value })} />
-                      <div className="truncate text-xs text-muted-foreground">{user.email}</div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={user.status === "active" ? "secondary" : "destructive"}>{user.status === "active" ? "active" : "disabled"}</Badge>
-                        <select
-                          className="h-8 rounded-md border bg-background px-2 text-xs"
-                          value={edit.role}
-                          onChange={(event) => updateEdit(user.id, { role: event.target.value === "admin" ? "admin" : "user" })}
-                        >
-                          <option value="user">用户</option>
-                          <option value="admin">管理员</option>
-                        </select>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className="min-w-44 align-top">
-                    <div className="grid gap-2">
-                      <LabeledInlineInput label="MB" value={edit.uploadMb} onChange={(value) => updateEdit(user.id, { uploadMb: value })} />
-                      <LabeledInlineInput label="Jobs" value={edit.ocrJobs} onChange={(value) => updateEdit(user.id, { ocrJobs: value })} />
-                      <LabeledInlineInput label="Pages" value={edit.ocrPages} onChange={(value) => updateEdit(user.id, { ocrPages: value })} />
-                      <div className="text-xs text-muted-foreground">
-                        已用 {formatBytes(user.quota.usage.uploadBytes)} · {user.quota.usage.ocrJobs} job · {user.quota.usage.ocrPages} 页
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className="align-top text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button type="button" size="icon-sm" variant="outline" disabled={busyUserId === user.id} onClick={() => updateUser(user)}>
-                        <Save className="h-4 w-4" />
-                        <span className="sr-only">保存</span>
-                      </Button>
-                      <Button
-                        type="button"
-                        size="icon-sm"
-                        variant={user.status === "active" ? "destructive" : "outline"}
-                        disabled={busyUserId === user.id || isSelf}
-                        onClick={() => updateUser(user, { status: user.status === "active" ? "disabled" : "active" })}
-                      >
-                        {user.status === "active" ? <XCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-                        <span className="sr-only">{user.status === "active" ? "禁用" : "启用"}</span>
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
+      <QuotaBoundarySummary />
+
+      <div className="space-y-3">
+        {users.map((user) => {
+          const edit = edits[user.id] ?? userToEdit(user)
+          const isSelf = user.id === currentUser.id
+          return (
+            <section key={user.id} className="rounded-md border bg-background p-3 dark:bg-card">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1 space-y-2">
+                  <Input value={edit.name} onChange={(event) => updateEdit(user.id, { name: event.target.value })} />
+                  <div className="truncate text-xs text-muted-foreground">{user.email}</div>
+                </div>
+                <Badge variant={user.status === "active" ? "secondary" : "destructive"} className="shrink-0">
+                  {user.status === "active" ? "active" : "disabled"}
+                </Badge>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <select
+                  className="h-8 rounded-md border bg-background px-2 text-xs"
+                  value={edit.role}
+                  onChange={(event) => updateEdit(user.id, { role: event.target.value === "admin" ? "admin" : "user" })}
+                >
+                  <option value="user">用户</option>
+                  <option value="admin">管理员</option>
+                </select>
+                <select
+                  className="h-8 rounded-md border bg-background px-2 text-xs"
+                  value={edit.status}
+                  disabled={isSelf}
+                  onChange={(event) => updateEdit(user.id, { status: event.target.value === "disabled" ? "disabled" : "active" })}
+                >
+                  <option value="active">启用</option>
+                  <option value="disabled">禁用</option>
+                </select>
+              </div>
+
+              <div className="mt-3 grid gap-2 rounded-md border bg-muted/20 p-2">
+                <QuotaNumberField
+                  label="上传 MB"
+                  value={edit.uploadMb}
+                  max={DEFAULT_UPLOAD_QUOTA_MB}
+                  onChange={(value) => updateEdit(user.id, { uploadMb: value })}
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <QuotaNumberField label="OCR 任务" value={edit.ocrJobs} onChange={(value) => updateEdit(user.id, { ocrJobs: value })} />
+                  <QuotaNumberField
+                    label="OCR 页"
+                    value={edit.ocrPages}
+                    max={PADDLEOCR_DAILY_PDF_PAGE_LIMIT}
+                    onChange={(value) => updateEdit(user.id, { ocrPages: value })}
+                  />
+                </div>
+                <div className="rounded bg-background px-2 py-1.5 text-xs text-muted-foreground dark:bg-muted/20">
+                  已用 {formatBytes(user.quota.usage.uploadBytes)} · {user.quota.usage.ocrJobs} job · {user.quota.usage.ocrPages} 页
+                </div>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <Button type="button" size="sm" variant="outline" disabled={busyUserId === user.id} onClick={() => updateUser(user)}>
+                  <Save className="h-4 w-4" />
+                  保存
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={edit.status === "active" ? "destructive" : "outline"}
+                  disabled={busyUserId === user.id || isSelf}
+                  onClick={() => updateUser(user, { status: edit.status === "active" ? "disabled" : "active" })}
+                >
+                  {edit.status === "active" ? <XCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+                  {edit.status === "active" ? "禁用" : "启用"}
+                </Button>
+              </div>
+            </section>
+          )
+        })}
       </div>
     </div>
   )
 }
 
-function LabeledInlineInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function QuotaBoundarySummary() {
   return (
-    <label className="grid grid-cols-[44px_minmax(0,1fr)] items-center gap-2 text-xs text-muted-foreground">
-      <span>{label}</span>
-      <Input className="h-8" type="number" min={0} value={value} onChange={(event) => onChange(event.target.value)} />
+    <div className="grid gap-2 rounded-md border bg-[#f8fbfc] p-3 text-xs text-muted-foreground dark:bg-muted/20">
+      <div className="flex items-start gap-2">
+        <HardDrive className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#176b87]" />
+        <span>R2 10GB/月 · Class A 100万/月 · Class B 1000万/月</span>
+      </div>
+      <div className="flex items-start gap-2">
+        <Database className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#176b87]" />
+        <span>D1 5GB · 读 {formatCount(CLOUDFLARE_D1_FREE_ROWS_READ_DAY)}/天 · 写 {formatCount(CLOUDFLARE_D1_FREE_ROWS_WRITTEN_DAY)}/天</span>
+      </div>
+    </div>
+  )
+}
+
+function QuotaNumberField({
+  id,
+  label,
+  value,
+  max,
+  onChange,
+}: {
+  id?: string
+  label: string
+  value: string
+  max?: number
+  onChange: (value: string) => void
+}) {
+  return (
+    <label className="grid gap-1 text-xs text-muted-foreground">
+      <span className="font-medium">{label}</span>
+      <Input id={id} className="h-8" type="number" min={0} max={max} value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   )
 }
@@ -347,7 +405,7 @@ function editToQuota(edit: UserEditState): CreateUserInput["quota"] {
 }
 
 function megabytesToBytes(value: string): number {
-  return numberFromInput(value) * 1024 * 1024
+  return numberFromInput(value) * BYTES_PER_MEGABYTE
 }
 
 function numberFromInput(value: string): number {
@@ -360,4 +418,9 @@ function formatBytes(value: number): string {
   if (value >= 1024 * 1024) return `${Math.round(value / 1024 / 1024)} MB`
   if (value >= 1024) return `${Math.round(value / 1024)} KB`
   return `${value} B`
+}
+
+function formatCount(value: number): string {
+  if (value >= 10_000) return `${value / 10_000}万`
+  return String(value)
 }

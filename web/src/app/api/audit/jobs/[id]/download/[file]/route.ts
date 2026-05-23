@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { jsonError } from "@/lib/api-response"
 import { requireAuth } from "@/lib/auth"
 import { getAuditDb } from "@/lib/audit-db"
-import { createCloudObjectStoreConfig, createPresignedGetUrl, siblingObjectKey } from "@/lib/cloud-object-store"
+import { createCloudObjectStoreConfig, createPresignedGetUrl, fetchCloudObjectBlob, siblingObjectKey } from "@/lib/cloud-object-store"
 
 export const runtime = "nodejs"
 
@@ -20,6 +20,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       if (!job.objectKey) return NextResponse.json({ error: "云端任务缺少对象路径" }, { status: 404 })
       const config = createCloudObjectStoreConfig()
       const objectKey = siblingObjectKey({ objectKey: job.objectKey, filename: file, prefix: config.prefix })
+      if (config.driver === "r2-binding") {
+        const object = await fetchCloudObjectBlob({ objectKey, config, fallbackContentType: contentTypeForFile(file) })
+        return new Response(object.blob, {
+          headers: {
+            "Content-Type": object.contentType,
+            "Content-Disposition": `attachment; filename="${file}"`,
+          },
+        })
+      }
       const download = createPresignedGetUrl({ objectKey, config })
       return NextResponse.redirect(download.url)
     }
@@ -28,4 +37,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   } catch (error) {
     return jsonError(error, "下载失败")
   }
+}
+
+function contentTypeForFile(file: string): string {
+  if (file.endsWith(".json")) return "application/json; charset=utf-8"
+  if (file.endsWith(".csv")) return "text/csv; charset=utf-8"
+  return "text/plain; charset=utf-8"
 }

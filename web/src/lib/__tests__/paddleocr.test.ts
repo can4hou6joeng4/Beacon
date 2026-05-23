@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  buildPaddleOcrFileJobRequest,
   buildPaddleOcrUrlJobRequest,
   createPaddleOcrConfig,
   fetchPaddleOcrJobSnapshot,
@@ -7,6 +8,7 @@ import {
   parsePaddleOcrJobId,
   parsePaddleOcrJobSnapshot,
   parsePaddleOcrJsonlMarkdown,
+  submitPaddleOcrFileJob,
   submitPaddleOcrUrlJob,
 } from "../paddleocr"
 
@@ -14,7 +16,7 @@ describe("createPaddleOcrConfig", () => {
   it("uses safe defaults and reads secrets from environment input", () => {
     const config = createPaddleOcrConfig({
       PADDLEOCR_API_BASE_URL: "https://paddleocr.aistudio-app.com/api/v2/ocr/",
-      PADDLEOCR_API_TOKEN: "runtime-secret",
+      PADDLEOCR_API_TOKEN: " bearer runtime-secret ",
       PADDLEOCR_MODEL: "PaddleOCR-VL-1.5",
       PADDLEOCR_POLL_INTERVAL_MS: "7000",
       PADDLEOCR_USE_DOC_ORIENTATION_CLASSIFY: "true",
@@ -64,6 +66,39 @@ describe("buildPaddleOcrUrlJobRequest", () => {
   })
 })
 
+describe("buildPaddleOcrFileJobRequest", () => {
+  it("creates the multipart file-mode PaddleOCR job request", async () => {
+    const config = createPaddleOcrConfig({ PADDLEOCR_API_TOKEN: "runtime-secret" })
+    const request = buildPaddleOcrFileJobRequest({
+      file: new Blob(["pdf-bytes"], { type: "application/pdf" }),
+      filename: "input.pdf",
+      config,
+    })
+
+    expect(request.url).toBe("https://paddleocr.aistudio-app.com/api/v2/ocr/jobs")
+    expect(request.headers).toEqual({ Authorization: "bearer runtime-secret" })
+    expect(request.body.get("model")).toBe("PaddleOCR-VL-1.5")
+    expect(request.body.get("optionalPayload")).toBe(
+      JSON.stringify({
+        useDocOrientationClassify: false,
+        useDocUnwarping: false,
+        useChartRecognition: false,
+      }),
+    )
+    const file = request.body.get("file")
+    expect(file).toBeInstanceOf(File)
+    expect((file as File).name).toBe("input.pdf")
+    await expect((file as File).text()).resolves.toBe("pdf-bytes")
+  })
+
+  it("rejects empty file-mode inputs", () => {
+    const config = createPaddleOcrConfig({ PADDLEOCR_API_TOKEN: "runtime-secret" })
+    expect(() => buildPaddleOcrFileJobRequest({ file: new Blob([]), filename: "input.pdf", config })).toThrow(
+      "PaddleOCR file mode requires a non-empty file",
+    )
+  })
+})
+
 describe("PaddleOCR HTTP client", () => {
   it("submits URL-mode jobs without exposing the token in the response", async () => {
     const config = createPaddleOcrConfig({ PADDLEOCR_API_TOKEN: "runtime-secret" })
@@ -80,6 +115,45 @@ describe("PaddleOCR HTTP client", () => {
     expect(calls[0]?.init?.headers).toEqual({
       Authorization: "bearer runtime-secret",
       "Content-Type": "application/json",
+    })
+  })
+
+  it("submits file-mode jobs without setting a manual multipart content type", async () => {
+    const config = createPaddleOcrConfig({ PADDLEOCR_API_TOKEN: "runtime-secret" })
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    const fetcher = async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init })
+      return Response.json({ data: { jobId: "file-job-123" } })
+    }
+
+    await expect(
+      submitPaddleOcrFileJob({
+        file: new Blob(["pdf-bytes"], { type: "application/pdf" }),
+        filename: "input.pdf",
+        config,
+        fetcher,
+      }),
+    ).resolves.toEqual({ providerJobId: "file-job-123" })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.init?.headers).toEqual({ Authorization: "bearer runtime-secret" })
+    expect(calls[0]?.init?.body).toBeInstanceOf(FormData)
+  })
+
+  it("maps provider 401 responses to an actionable app error", async () => {
+    const config = createPaddleOcrConfig({ PADDLEOCR_API_TOKEN: "runtime-secret" })
+    const fetcher = async () => Response.json({ msg: "Unauthorized" }, { status: 401 })
+
+    await expect(
+      submitPaddleOcrFileJob({
+        file: new Blob(["pdf-bytes"], { type: "application/pdf" }),
+        filename: "input.pdf",
+        config,
+        fetcher,
+      }),
+    ).rejects.toMatchObject({
+      status: 502,
+      code: "PADDLEOCR_UNAUTHORIZED",
+      message: "PaddleOCR 鉴权失败：PADDLEOCR_API_TOKEN 无效、过期或未授权当前接口",
     })
   })
 

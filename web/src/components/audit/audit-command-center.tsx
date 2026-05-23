@@ -281,7 +281,8 @@ export function AuditCommandCenter({
         body: file,
       })
       if (!uploadResponse.ok) {
-        setError(`对象存储上传失败：HTTP ${uploadResponse.status}`)
+        const uploadError = (await uploadResponse.json().catch(() => null)) as { error?: string } | null
+        setError(uploadError?.error || `对象存储上传失败：HTTP ${uploadResponse.status}`)
         setIsUploading(false)
         setStage({ activeStep: 1, failed: true, complete: false, label: "上传失败" })
         return

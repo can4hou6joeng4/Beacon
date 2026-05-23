@@ -33,7 +33,13 @@ export async function consumeOcrJobQuota(input: {
     resource: "ocr_jobs",
     action: "consume",
   })
-  if (existing > 0) return
+  const refunded = await db.getJobLedgerAmount({
+    userId,
+    jobId: input.jobId,
+    resource: "ocr_jobs",
+    action: "refund",
+  })
+  if (existing > refunded) return
   await ensureUserQuotaAvailable(userId, "ocr_jobs", 1)
   await db.addQuotaLedger({
     userId,
@@ -94,6 +100,46 @@ export async function refundQuota(input: {
     amount: input.amount,
     reason: input.reason,
   })
+}
+
+export async function refundQuotaOnce(input: {
+  userId: string
+  jobId: string
+  resource: QuotaResource
+  amount?: number
+  reason: string
+}): Promise<number> {
+  const db = await getAuthDb()
+  const reserved = await db.getJobLedgerAmount({
+    userId: input.userId,
+    jobId: input.jobId,
+    resource: input.resource,
+    action: "reserve",
+  })
+  const consumed = await db.getJobLedgerAmount({
+    userId: input.userId,
+    jobId: input.jobId,
+    resource: input.resource,
+    action: "consume",
+  })
+  const refunded = await db.getJobLedgerAmount({
+    userId: input.userId,
+    jobId: input.jobId,
+    resource: input.resource,
+    action: "refund",
+  })
+  const refundable = Math.max(0, reserved + consumed - refunded)
+  const requested = input.amount === undefined ? refundable : Math.max(0, Math.min(input.amount, refundable))
+  if (!Number.isInteger(requested) || requested <= 0) return 0
+  await db.addQuotaLedger({
+    userId: input.userId,
+    jobId: input.jobId,
+    resource: input.resource,
+    action: "refund",
+    amount: requested,
+    reason: input.reason,
+  })
+  return requested
 }
 
 export async function ensureQuotaAvailable(context: AuthContext, resource: QuotaResource, amount: number): Promise<void> {

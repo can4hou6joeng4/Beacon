@@ -2,6 +2,7 @@ import { AppError } from "./app-error"
 import { getAuthDb, normalizeEmail, publicUser, type CreateUserRecordInput, type UpdateUserInput } from "./auth-db"
 import { generateSessionToken, hashPassword, hashToken, verifyPassword } from "./auth-crypto"
 import type { AuthContext, CreateUserInput, PublicUser } from "./auth-types"
+import { clampQuotaLimit, MAX_OCR_PAGE_QUOTA, MAX_UPLOAD_QUOTA_BYTES } from "./quota-limits"
 
 export const AUTH_SESSION_COOKIE = "pdf_audit_session"
 
@@ -201,10 +202,19 @@ function validateCreateUserInput(input: CreateUserInput): void {
 }
 
 function normalizeQuota(quota: CreateUserInput["quota"]): CreateUserInput["quota"] {
+  const uploadBytesLimit = positiveInteger(quota.uploadBytesLimit, "上传额度")
+  const ocrJobsLimit = positiveInteger(quota.ocrJobsLimit, "OCR 任务额度")
+  const ocrPagesLimit = positiveInteger(quota.ocrPagesLimit, "OCR 页数额度")
+  if (uploadBytesLimit > MAX_UPLOAD_QUOTA_BYTES) {
+    throw new AppError("上传额度不能超过 Cloudflare R2 免费层 10GB", { status: 400, code: "UPLOAD_QUOTA_LIMIT_EXCEEDED" })
+  }
+  if (ocrPagesLimit > MAX_OCR_PAGE_QUOTA) {
+    throw new AppError("OCR 页数额度不能超过 PaddleOCR 每日 2000 页上限", { status: 400, code: "OCR_PAGE_LIMIT_EXCEEDED" })
+  }
   return {
-    uploadBytesLimit: positiveInteger(quota.uploadBytesLimit, "上传额度"),
-    ocrJobsLimit: positiveInteger(quota.ocrJobsLimit, "OCR 任务额度"),
-    ocrPagesLimit: positiveInteger(quota.ocrPagesLimit, "OCR 页数额度"),
+    uploadBytesLimit: clampQuotaLimit("uploadBytesLimit", uploadBytesLimit),
+    ocrJobsLimit,
+    ocrPagesLimit: clampQuotaLimit("ocrPagesLimit", ocrPagesLimit),
   }
 }
 
