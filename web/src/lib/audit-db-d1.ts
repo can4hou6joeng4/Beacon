@@ -1,20 +1,11 @@
 import { randomUUID } from "node:crypto"
 import type { AuditDb, AuditStatusPatch, CreateJobInput, ManifestPatch } from "./audit-db"
 import type { AuditHistoryJob, AuditStatusValue, AuditSummary } from "./audit-types"
-
-type D1DatabaseLike = {
-  prepare(query: string): D1PreparedStatementLike
-}
-
-type D1PreparedStatementLike = {
-  bind(...values: unknown[]): D1PreparedStatementLike
-  first<T = unknown>(): Promise<T | null>
-  all<T = unknown>(): Promise<{ results?: T[] }>
-  run(): Promise<unknown>
-}
+import type { D1DatabaseLike } from "./cloudflare-env"
 
 type JobRow = {
   id: string
+  user_id: string | null
   python_job_id: string | null
   provider_job_id: string | null
   object_key: string | null
@@ -34,6 +25,8 @@ type JobRow = {
   matches: number
   near_expiry: number
   needs_review: number
+  upload_bytes: number
+  ocr_pages_used: number
 }
 
 export function createAuditD1Db(db: unknown): AuditDb {
@@ -42,15 +35,25 @@ export function createAuditD1Db(db: unknown): AuditDb {
   return {
     async createJob(input: CreateJobInput) {
       const now = new Date().toISOString()
-      const id = randomUUID()
+      const id = input.id ?? randomUUID()
       await d1.prepare(`
         INSERT INTO jobs (
-          id, python_job_id, provider_job_id, object_key, runtime, filename, cutoff, status, message, created_at, updated_at,
+          id, user_id, python_job_id, provider_job_id, object_key, runtime, filename, cutoff, status, message, created_at, updated_at,
           completed_at, pages_ocr, ocr_error_pages, ocr_total_pages, certificate_pages, validity_candidates, matches,
-          near_expiry, needs_review
+          near_expiry, needs_review, upload_bytes, ocr_pages_used
         )
-        VALUES (?, NULL, NULL, ?, ?, ?, ?, 'queued', '等待上传', ?, ?, NULL, 0, 0, 0, 0, 0, 0, 0, 0)
-      `).bind(id, input.objectKey ?? null, input.runtime ?? "local-python", input.filename, input.cutoff, now, now).run()
+        VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, 'queued', '等待上传', ?, ?, NULL, 0, 0, 0, 0, 0, 0, 0, 0, ?, 0)
+      `).bind(
+        id,
+        input.userId ?? null,
+        input.objectKey ?? null,
+        input.runtime ?? "local-python",
+        input.filename,
+        input.cutoff,
+        now,
+        now,
+        input.uploadBytes ?? 0,
+      ).run()
       return requireJob(await this.getJob(id), id)
     },
 
@@ -147,8 +150,20 @@ export function createAuditD1Db(db: unknown): AuditDb {
       return this.getJob(id)
     },
 
+    async updateOcrPagesUsed(id: string, pages: number) {
+      const now = new Date().toISOString()
+      await d1.prepare("UPDATE jobs SET ocr_pages_used = ?, updated_at = ? WHERE id = ?").bind(pages, now, id).run()
+      return this.getJob(id)
+    },
+
     async getJob(id: string) {
       const row = await d1.prepare("SELECT * FROM jobs WHERE id = ?").bind(id).first<JobRow>()
+      return row ? mapRow(row) : null
+    },
+
+    async getJobForUser(id: string, userId: string, role: "admin" | "user") {
+      if (role === "admin") return this.getJob(id)
+      const row = await d1.prepare("SELECT * FROM jobs WHERE id = ? AND user_id = ?").bind(id, userId).first<JobRow>()
       return row ? mapRow(row) : null
     },
 
@@ -157,8 +172,10 @@ export function createAuditD1Db(db: unknown): AuditDb {
       return row ? mapRow(row) : null
     },
 
-    async listJobs(limit = 20) {
-      const result = await d1.prepare("SELECT * FROM jobs ORDER BY created_at DESC, id DESC LIMIT ?").bind(limit).all<JobRow>()
+    async listJobs(limit = 20, user) {
+      const result = user?.role === "user"
+        ? await d1.prepare("SELECT * FROM jobs WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?").bind(user.id, limit).all<JobRow>()
+        : await d1.prepare("SELECT * FROM jobs ORDER BY created_at DESC, id DESC LIMIT ?").bind(limit).all<JobRow>()
       return (result.results ?? []).map(mapRow)
     },
   }
@@ -172,6 +189,7 @@ function requireJob(job: AuditHistoryJob | null, id: string): AuditHistoryJob {
 function mapRow(row: JobRow): AuditHistoryJob {
   return {
     id: row.id,
+    userId: row.user_id,
     pythonJobId: row.python_job_id,
     providerJobId: row.provider_job_id,
     objectKey: row.object_key,
@@ -191,5 +209,7 @@ function mapRow(row: JobRow): AuditHistoryJob {
     matches: row.matches,
     nearExpiry: row.near_expiry,
     needsReview: row.needs_review,
+    uploadBytes: row.upload_bytes,
+    ocrPagesUsed: row.ocr_pages_used,
   }
 }

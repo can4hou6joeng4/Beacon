@@ -277,13 +277,15 @@ Cloudflare Workers:
   - `NEXT_INC_CACHE_R2_BUCKET: R2Bucket`
 - Required secrets:
   - `PADDLEOCR_API_TOKEN`
-  - `PDF_CHECKER_TOKEN`
+  - `AUTH_BOOTSTRAP_TOKEN`
 
 ### 3. Contracts
 
 - `AUDIT_RUNTIME_MODE=paddleocr` and `NEXT_PUBLIC_AUDIT_RUNTIME_MODE=paddleocr` select the cloud upload path.
 - `AUDIT_DB_DRIVER=d1` means job history must use the `AUDIT_DB` binding.
 - `AUDIT_OBJECT_STORE_DRIVER=r2-binding` means artifact storage must use the `AUDIT_BUCKET` binding.
+- Normal access is account/session based. The retired shared `PDF_CHECKER_TOKEN` must not be required, accepted, or configured for production access.
+- `AUTH_BOOTSTRAP_TOKEN` is only for `POST /api/auth/bootstrap` while the `users` table is empty.
 - `web/wrangler.jsonc` must not contain real secret values. Secrets are set with `wrangler secret put`.
 - `database_id` is account-specific and must be replaced after `wrangler d1 create`.
 - Keep local fallback values in examples only; do not point production Worker variables at `127.0.0.1`.
@@ -292,6 +294,7 @@ Cloudflare Workers:
 
 - Missing `AUDIT_DB` binding -> status/history endpoints fail before writing jobs.
 - Missing `AUDIT_BUCKET` binding -> cloud uploads cannot persist artifacts.
+- Missing `AUTH_BOOTSTRAP_TOKEN` -> first-admin bootstrap fails closed with `503`.
 - Placeholder D1 `database_id` -> Wrangler deploy must be blocked until replaced.
 - Cloudflare API error `10000` during R2/D1 commands -> current `CLOUDFLARE_API_TOKEN` lacks product permissions.
 - `proxy.ts` Node middleware used for Cloudflare OpenNext -> build fails; use Edge-compatible `middleware.ts`.
@@ -299,9 +302,9 @@ Cloudflare Workers:
 
 ### 5. Good/Base/Bad Cases
 
-- Good: `wrangler.jsonc` declares bindings, secrets are uploaded separately, D1 migrations apply remotely, and `npm run cf:build` succeeds.
+- Good: `wrangler.jsonc` declares bindings, secrets are uploaded separately, D1 migrations apply remotely, `npm run cf:build` succeeds, and unauthenticated API calls return `401`.
 - Base: Local `next build` and Python tests still pass with SQLite and local upload fallback.
-- Bad: Deploying a Worker that imports `better-sqlite3` or `node:fs` from shared route modules at top level.
+- Bad: Deploying a Worker that imports `better-sqlite3` or `node:fs` from shared route modules at top level, or reintroduces a shared URL token for normal access.
 
 ### 6. Tests Required
 
@@ -311,6 +314,7 @@ Cloudflare Workers:
 - `npm run cf:build`
 - Python unittest discovery for local fallback
 - Secret grep for PaddleOCR/Cloudflare/R2 credentials
+- Remote verification: `curl -I https://pdf-audit.bobochang.cn/`, unauthenticated `/api/auth/me` returns `401`, and authenticated `/api/auth/me` returns the user plus quota snapshot.
 
 ### 7. Wrong vs Correct
 
@@ -340,7 +344,7 @@ Cloudflare Workers:
 
 ```bash
 npx wrangler secret put PADDLEOCR_API_TOKEN
-npx wrangler secret put PDF_CHECKER_TOKEN
+npx wrangler secret put AUTH_BOOTSTRAP_TOKEN
 ```
 
 ## Verification

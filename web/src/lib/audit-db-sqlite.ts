@@ -7,6 +7,7 @@ import type { AuditDb, AuditStatusPatch, CreateJobInput, ManifestPatch } from ".
 
 type JobRow = {
   id: string
+  user_id: string | null
   python_job_id: string | null
   provider_job_id: string | null
   object_key: string | null
@@ -26,6 +27,8 @@ type JobRow = {
   matches: number
   near_expiry: number
   needs_review: number
+  upload_bytes: number
+  ocr_pages_used: number
 }
 
 let singleton: AuditDb | null = null
@@ -47,15 +50,25 @@ export function createAuditDbForPath(dbPath: string): AuditDb {
   return {
     async createJob(input: CreateJobInput) {
       const now = new Date().toISOString()
-      const id = randomUUID()
+      const id = input.id ?? randomUUID()
       db.prepare(`
         INSERT INTO jobs (
-          id, python_job_id, provider_job_id, object_key, runtime, filename, cutoff, status, message, created_at, updated_at,
+          id, user_id, python_job_id, provider_job_id, object_key, runtime, filename, cutoff, status, message, created_at, updated_at,
           completed_at, pages_ocr, ocr_error_pages, ocr_total_pages, certificate_pages, validity_candidates, matches,
-          near_expiry, needs_review
+          near_expiry, needs_review, upload_bytes, ocr_pages_used
         )
-        VALUES (?, NULL, NULL, ?, ?, ?, ?, 'queued', '等待上传', ?, ?, NULL, 0, 0, 0, 0, 0, 0, 0, 0)
-      `).run(id, input.objectKey ?? null, input.runtime ?? "local-python", input.filename, input.cutoff, now, now)
+        VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, 'queued', '等待上传', ?, ?, NULL, 0, 0, 0, 0, 0, 0, 0, 0, ?, 0)
+      `).run(
+        id,
+        input.userId ?? null,
+        input.objectKey ?? null,
+        input.runtime ?? "local-python",
+        input.filename,
+        input.cutoff,
+        now,
+        now,
+        input.uploadBytes ?? 0,
+      )
       return mapRow(db.prepare("SELECT * FROM jobs WHERE id = ?").get(id) as JobRow)
     },
 
@@ -156,8 +169,20 @@ export function createAuditDbForPath(dbPath: string): AuditDb {
       return this.getJob(id)
     },
 
+    async updateOcrPagesUsed(id: string, pages: number) {
+      const now = new Date().toISOString()
+      db.prepare("UPDATE jobs SET ocr_pages_used = ?, updated_at = ? WHERE id = ?").run(pages, now, id)
+      return this.getJob(id)
+    },
+
     async getJob(id: string) {
       const row = db.prepare("SELECT * FROM jobs WHERE id = ?").get(id) as JobRow | undefined
+      return row ? mapRow(row) : null
+    },
+
+    async getJobForUser(id: string, userId: string, role: "admin" | "user") {
+      if (role === "admin") return this.getJob(id)
+      const row = db.prepare("SELECT * FROM jobs WHERE id = ? AND user_id = ?").get(id, userId) as JobRow | undefined
       return row ? mapRow(row) : null
     },
 
@@ -166,8 +191,10 @@ export function createAuditDbForPath(dbPath: string): AuditDb {
       return row ? mapRow(row) : null
     },
 
-    async listJobs(limit = 20) {
-      const rows = db.prepare("SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT ?").all(limit) as JobRow[]
+    async listJobs(limit = 20, user) {
+      const rows = user?.role === "user"
+        ? db.prepare("SELECT * FROM jobs WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(user.id, limit) as JobRow[]
+        : db.prepare("SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT ?").all(limit) as JobRow[]
       return rows.map(mapRow)
     },
   }
@@ -177,6 +204,7 @@ function migrate(db: Database.Database) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS jobs (
           id TEXT PRIMARY KEY,
+          user_id TEXT,
           python_job_id TEXT UNIQUE,
           provider_job_id TEXT,
           object_key TEXT,
@@ -196,6 +224,8 @@ function migrate(db: Database.Database) {
       matches INTEGER NOT NULL DEFAULT 0,
       near_expiry INTEGER NOT NULL DEFAULT 0,
       needs_review INTEGER NOT NULL DEFAULT 0
+      , upload_bytes INTEGER NOT NULL DEFAULT 0
+      , ocr_pages_used INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_jobs_python_job_id ON jobs(python_job_id);
@@ -206,6 +236,12 @@ function migrate(db: Database.Database) {
   addColumnIfMissing(db, "jobs", "provider_job_id", "TEXT")
   addColumnIfMissing(db, "jobs", "object_key", "TEXT")
   addColumnIfMissing(db, "jobs", "runtime", "TEXT NOT NULL DEFAULT 'local-python'")
+  addColumnIfMissing(db, "jobs", "user_id", "TEXT")
+  addColumnIfMissing(db, "jobs", "upload_bytes", "INTEGER NOT NULL DEFAULT 0")
+  addColumnIfMissing(db, "jobs", "ocr_pages_used", "INTEGER NOT NULL DEFAULT 0")
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_jobs_user_id ON jobs(user_id);
+  `)
 }
 
 function addColumnIfMissing(db: Database.Database, table: string, column: string, definition: string) {
@@ -218,6 +254,7 @@ function addColumnIfMissing(db: Database.Database, table: string, column: string
 function mapRow(row: JobRow): AuditHistoryJob {
   return {
     id: row.id,
+    userId: row.user_id,
     pythonJobId: row.python_job_id,
     providerJobId: row.provider_job_id,
     objectKey: row.object_key,
@@ -237,5 +274,7 @@ function mapRow(row: JobRow): AuditHistoryJob {
     matches: row.matches,
     nearExpiry: row.near_expiry,
     needsReview: row.needs_review,
+    uploadBytes: row.upload_bytes,
+    ocrPagesUsed: row.ocr_pages_used,
   }
 }

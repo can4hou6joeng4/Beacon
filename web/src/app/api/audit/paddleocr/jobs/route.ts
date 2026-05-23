@@ -1,23 +1,17 @@
 import { NextResponse } from "next/server"
-import { isAuthorized } from "@/lib/audit-auth"
-import { submitPaddleOcrUrlJob } from "@/lib/paddleocr"
+import { jsonError } from "@/lib/api-response"
+import { requireAuth } from "@/lib/auth"
 
 export const runtime = "nodejs"
 
 export async function POST(request: Request) {
   try {
-    if (!isAuthorized(request)) {
-      return NextResponse.json({ error: "未授权，请使用带 token 的链接访问" }, { status: 401 })
-    }
-
-    const payload = (await request.json().catch(() => null)) as { fileUrl?: string } | null
-    if (!payload?.fileUrl) {
-      return NextResponse.json({ error: "缺少 PaddleOCR fileUrl" }, { status: 400 })
-    }
-
-    const submitted = await submitPaddleOcrUrlJob({ fileUrl: payload.fileUrl })
-    return NextResponse.json(submitted)
+    await requireAuth(request)
+    return NextResponse.json(
+      { error: "请通过对象存储上传流程提交 OCR，直连 fileUrl 已关闭以保证任务归属和额度审计" },
+      { status: 410 },
+    )
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "提交 PaddleOCR 任务失败" }, { status: 500 })
+    return jsonError(error, "提交 PaddleOCR 任务失败")
   }
 }

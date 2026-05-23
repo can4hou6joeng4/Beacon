@@ -1,17 +1,19 @@
 import { NextResponse } from "next/server"
 import { jsonError } from "@/lib/api-response"
 import { requireAuth } from "@/lib/auth"
-import { getAuditDb } from "@/lib/audit-db"
 
 export const runtime = "nodejs"
 
 export async function GET(request: Request) {
   try {
     const context = await requireAuth(request)
-    const db = await getAuditDb()
-    const jobs = await db.listJobs(20, { id: context.user.id, role: context.user.role })
-    return NextResponse.json({ jobs })
+    return NextResponse.json({
+      user: {
+        ...context.user,
+        quota: context.quota,
+      },
+    })
   } catch (error) {
-    return jsonError(error, "读取历史记录失败")
+    return jsonError(error, "读取当前用户失败")
   }
 }

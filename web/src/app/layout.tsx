@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "PDF 证件有效期审计",
-  description: "本机 OCR 审计工作台",
+  description: "Cloudflare 云端证件有效期审计工作台",
 };
 
 export default function RootLayout({

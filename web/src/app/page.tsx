@@ -1,32 +1,19 @@
 import { AuditCommandCenter } from "@/components/audit/audit-command-center"
+import { SignInPanel } from "@/components/auth/sign-in-panel"
 import { getAuditDb } from "@/lib/audit-db"
-import { fetchPythonResult, resultDistribution } from "@/lib/audit-python"
+import { getAuthContextFromCookieHeader } from "@/lib/auth"
+import { cookies } from "next/headers"
 
-export default async function Home({ searchParams }: { searchParams?: Promise<{ token?: string }> }) {
-  const params = await searchParams
-  const db = await getAuditDb()
-  let jobs = await db.listJobs(20)
-  let initialResult = null
+export default async function Home() {
+  const cookieStore = await cookies()
+  const context = await getAuthContextFromCookieHeader(cookieStore.toString())
 
-  const latest = jobs[0]
-  if (latest?.status === "complete" && latest.pythonJobId) {
-    try {
-      const result = await fetchPythonResult(latest.pythonJobId)
-      const job = await db.updateFromResult(latest.id, result.summary, {
-        certificate_pages: result.manifest?.certificate_pages,
-      })
-      jobs = await db.listJobs(20)
-      if (job) {
-        initialResult = {
-          job,
-          result,
-          distribution: resultDistribution(result.summary),
-        }
-      }
-    } catch {
-      initialResult = null
-    }
+  if (!context) {
+    return <SignInPanel />
   }
 
-  return <AuditCommandCenter initialHistory={jobs} initialResult={initialResult} accessToken={params?.token ?? ""} />
+  const db = await getAuditDb()
+  const jobs = await db.listJobs(20, { id: context.user.id, role: context.user.role })
+
+  return <AuditCommandCenter initialHistory={jobs} initialResult={null} currentUser={{ ...context.user, quota: context.quota }} />
 }

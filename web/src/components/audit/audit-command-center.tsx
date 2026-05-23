@@ -1,7 +1,24 @@
 "use client"
 
-import { AlertCircle, Archive, CalendarClock, ChevronDown, FileText, FolderOpen, UploadCloud } from "lucide-react"
+import {
+  AlertCircle,
+  Archive,
+  CalendarClock,
+  ChevronDown,
+  FileText,
+  FolderOpen,
+  LogOut,
+  ShieldCheck,
+  UploadCloud,
+  User,
+} from "lucide-react"
 import { FormEvent, useMemo, useRef, useState } from "react"
+import { AdminUserPanel } from "@/components/audit/admin-user-panel"
+import { HistoryPanel } from "@/components/audit/history-panel"
+import { ProgressSteps } from "@/components/audit/progress-steps"
+import { ResultDistributionChart } from "@/components/audit/result-distribution-chart"
+import { ResultTable } from "@/components/audit/result-table"
+import { ThemeToggle } from "@/components/theme-toggle"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -10,13 +27,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
-import { HistoryPanel } from "@/components/audit/history-panel"
-import { ProgressSteps } from "@/components/audit/progress-steps"
-import { ResultDistributionChart } from "@/components/audit/result-distribution-chart"
-import { ResultTable } from "@/components/audit/result-table"
-import { ThemeToggle } from "@/components/theme-toggle"
 import type { StageState } from "@/lib/audit-python"
 import type { AuditHistoryJob, AuditResult, AuditSummary } from "@/lib/audit-types"
+import type { PublicUser } from "@/lib/auth-types"
 
 type DistributionRow = {
   name: string
@@ -44,18 +57,18 @@ type CreatePayload = {
   error?: string
 }
 
-type UploadSessionPayload = {
-  uploadId: string
-  chunkSize: number
-  error?: string
-}
-
 type CloudUploadSessionPayload = {
+  jobId: string
   objectKey: string
   uploadUrl: string
   uploadExpiresAt: string
   method: "PUT"
   headers: Record<string, string>
+  error?: string
+}
+
+type MePayload = {
+  user?: PublicUser
   error?: string
 }
 
@@ -68,18 +81,30 @@ function emptyDistribution(): DistributionRow[] {
   ]
 }
 
-function summaryValue(summary: AuditSummary | null, key: keyof AuditSummary) {
+function summaryValue(summary: AuditSummary | null, key: keyof AuditSummary): number {
   if (!summary) return 0
-  return summary[key]
+  return Number(summary[key] ?? 0)
 }
 
-function metricCardClass(label: string, value: number) {
+function metricCardClass(label: string, value: number): string {
   if (label === "命中项" && value > 0) return "border-destructive/40 bg-destructive/5"
   if (label === "需复核" && value > 0) return "border-[#176b87]/40 bg-[#eef7fa] dark:bg-cyan-950/30 dark:border-cyan-800/60"
   return ""
 }
 
-async function fetchWithRetries(input: RequestInfo | URL, init: RequestInit, attempts = 5) {
+function formatBytes(value: number): string {
+  if (value >= 1024 * 1024 * 1024) return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`
+  if (value >= 1024 * 1024) return `${Math.round(value / 1024 / 1024)} MB`
+  if (value >= 1024) return `${Math.round(value / 1024)} KB`
+  return `${value} B`
+}
+
+function quotaPercent(used: number, limit: number): number {
+  if (limit <= 0) return 0
+  return Math.min(100, Math.round((used / limit) * 100))
+}
+
+async function fetchWithRetries(input: RequestInfo | URL, init: RequestInit, attempts = 5): Promise<Response> {
   let lastError: unknown
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -107,12 +132,13 @@ function CollapseButton({ open, onClick }: { open: boolean; onClick: () => void 
 export function AuditCommandCenter({
   initialHistory,
   initialResult,
-  accessToken = "",
+  currentUser: initialUser,
 }: {
   initialHistory: AuditHistoryJob[]
   initialResult: InitialResultPayload | null
-  accessToken?: string
+  currentUser: PublicUser
 }) {
+  const [currentUser, setCurrentUser] = useState(initialUser)
   const [history, setHistory] = useState(initialHistory)
   const [currentJob, setCurrentJob] = useState<AuditHistoryJob | null>(initialResult?.job ?? initialHistory[0] ?? null)
   const [stage, setStage] = useState<StageState | null>(
@@ -122,51 +148,60 @@ export function AuditCommandCenter({
   const [distribution, setDistribution] = useState<DistributionRow[]>(initialResult?.distribution ?? emptyDistribution)
   const [error, setError] = useState("")
   const [isUploading, setIsUploading] = useState(false)
+  const [isSigningOut, setIsSigningOut] = useState(false)
   const [uploadPercent, setUploadPercent] = useState(0)
   const [loadingResultJobId, setLoadingResultJobId] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(!currentJob)
   const [overviewOpen, setOverviewOpen] = useState(false)
+  const [adminOpen, setAdminOpen] = useState(false)
   const [fileName, setFileName] = useState("")
   const [cutoff, setCutoff] = useState("2026-05-07")
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const useCloudUpload = process.env.NEXT_PUBLIC_AUDIT_RUNTIME_MODE === "paddleocr"
-
-  function apiPath(path: string) {
-    if (!accessToken) return path
-    return `${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(accessToken)}`
-  }
 
   const summary = result?.summary ?? null
-  const progressPercent = uploadPercent > 0 && uploadPercent < 100 ? uploadPercent : stage?.complete ? 100 : stage ? Math.min(stage.activeStep * 20, 86) : 0
+  const progressPercent = uploadPercent > 0 && uploadPercent < 100
+    ? uploadPercent
+    : stage?.complete
+      ? 100
+      : stage
+        ? Math.min(stage.activeStep * 20, 86)
+        : 0
   const headline = useMemo(() => {
     if (!result) return currentJob ? currentJob.message : "上传 PDF 后开始检查"
     return result.summary.matches === 0 ? "当前任务无早于截止日期证件" : `发现 ${result.summary.matches} 项早于截止日期`
   }, [currentJob, result])
 
+  async function refreshCurrentUser() {
+    const response = await fetch("/api/auth/me", { cache: "no-store" })
+    if (!response.ok) return
+    const payload = (await response.json().catch(() => ({}))) as MePayload
+    if (payload.user) setCurrentUser(payload.user)
+  }
+
   async function refreshHistory() {
-    const response = await fetch(apiPath("/api/audit/history"), { cache: "no-store" })
+    const response = await fetch("/api/audit/history", { cache: "no-store" })
     if (!response.ok) return
     const payload = (await response.json()) as { jobs: AuditHistoryJob[] }
     setHistory(payload.jobs)
   }
 
   async function loadResult(job: AuditHistoryJob) {
-    if (!job.pythonJobId) return
+    if (job.runtime !== "paddleocr" && !job.pythonJobId) return
     setError("")
     setLoadingResultJobId(job.id)
     try {
-      const response = await fetch(apiPath(`/api/audit/jobs/${job.id}/result`), { cache: "no-store" })
+      const response = await fetch(`/api/audit/jobs/${job.id}/result`, { cache: "no-store" })
       const payload = (await response.json().catch(() => ({ error: "读取结果失败" }))) as ResultPayload
       if (!response.ok) {
-        setError(response.status === 401 ? "历史结果读取未授权，请使用带 token 的链接重新进入。" : payload.error || "读取结果失败")
+        setError(response.status === 401 ? "请重新登录后读取历史结果" : payload.error || "读取结果失败")
         return
       }
       setCurrentJob(payload.job)
       setResult(payload.result)
       setDistribution(payload.distribution)
       setStage({ activeStep: 5, failed: false, complete: true, label: payload.job.message })
-      await refreshHistory()
+      await Promise.all([refreshHistory(), refreshCurrentUser()])
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : "读取结果失败")
     } finally {
@@ -175,8 +210,8 @@ export function AuditCommandCenter({
   }
 
   async function pollStatus(job: AuditHistoryJob) {
-    const response = await fetch(apiPath(`/api/audit/jobs/${job.id}/status`), { cache: "no-store" })
-    const payload = (await response.json()) as StatusPayload
+    const response = await fetch(`/api/audit/jobs/${job.id}/status`, { cache: "no-store" })
+    const payload = (await response.json().catch(() => ({ error: "读取任务状态失败" }))) as StatusPayload
     if (!response.ok) {
       setError(payload.error || "读取任务状态失败")
       setIsUploading(false)
@@ -197,7 +232,7 @@ export function AuditCommandCenter({
       setUploadPercent(0)
       setError(payload.job.message || "检查失败")
       setIsUploading(false)
-      await refreshHistory()
+      await Promise.all([refreshHistory(), refreshCurrentUser()])
       return
     }
 
@@ -220,127 +255,77 @@ export function AuditCommandCenter({
     setStage({ activeStep: 1, failed: false, complete: false, label: "正在创建上传会话" })
 
     try {
-      if (useCloudUpload) {
-        const sessionResponse = await fetchWithRetries(apiPath("/api/audit/cloud-uploads"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ filename: file.name, size: file.size, contentType: file.type || "application/pdf" }),
-        })
-        const session = (await sessionResponse.json().catch(() => ({ error: "创建云端上传会话失败" }))) as CloudUploadSessionPayload
-        if (!sessionResponse.ok) {
-          setError(session.error || "创建云端上传会话失败")
-          setIsUploading(false)
-          setStage({ activeStep: 1, failed: true, complete: false, label: "上传失败" })
-          return
-        }
-
-        setStage({ activeStep: 1, failed: false, complete: false, label: "正在上传 PDF 到对象存储" })
-        const uploadResponse = await fetchWithRetries(session.uploadUrl, {
-          method: session.method,
-          headers: session.headers,
-          body: file,
-        })
-        if (!uploadResponse.ok) {
-          setError(`对象存储上传失败：HTTP ${uploadResponse.status}`)
-          setIsUploading(false)
-          setStage({ activeStep: 1, failed: true, complete: false, label: "上传失败" })
-          return
-        }
-
-        setUploadPercent(86)
-        setStage({ activeStep: 2, failed: false, complete: false, label: "正在提交 PaddleOCR 任务" })
-        const submitResponse = await fetchWithRetries(apiPath("/api/audit/cloud-uploads/paddleocr"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ objectKey: session.objectKey, filename: file.name, cutoff }),
-        })
-        const submitted = (await submitResponse.json().catch(() => ({ error: "提交 PaddleOCR 任务失败" }))) as CreatePayload
-        if (!submitResponse.ok) {
-          setError(submitted.error || "提交 PaddleOCR 任务失败")
-          setIsUploading(false)
-          setStage({ activeStep: 2, failed: true, complete: false, label: "提交失败" })
-          return
-        }
-
-        setCurrentJob(submitted.job)
-        await refreshHistory()
-        void pollStatus(submitted.job)
-        return
-      }
-
-      const sessionResponse = await fetchWithRetries(apiPath("/api/audit/uploads"), {
+      const sessionResponse = await fetchWithRetries("/api/audit/cloud-uploads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename: file.name, size: file.size, contentType: file.type || "application/pdf" }),
+        body: JSON.stringify({
+          filename: file.name,
+          size: file.size,
+          contentType: file.type || "application/pdf",
+          cutoff,
+        }),
       })
-      const session = (await sessionResponse.json().catch(() => ({ error: "创建上传会话失败" }))) as UploadSessionPayload
+      const session = (await sessionResponse.json().catch(() => ({ error: "创建云端上传会话失败" }))) as CloudUploadSessionPayload
       if (!sessionResponse.ok) {
-        setError(sessionResponse.status === 413 ? "PDF 文件超过当前上传限制" : session.error || "创建上传会话失败")
+        setError(session.error || "创建云端上传会话失败")
         setIsUploading(false)
         setStage({ activeStep: 1, failed: true, complete: false, label: "上传失败" })
         return
       }
+      await Promise.all([refreshHistory(), refreshCurrentUser()])
 
-      const totalChunks = Math.ceil(file.size / session.chunkSize)
-      for (let index = 0; index < totalChunks; index += 1) {
-        const chunk = file.slice(index * session.chunkSize, Math.min(file.size, (index + 1) * session.chunkSize))
-        setStage({ activeStep: 1, failed: false, complete: false, label: `正在上传 PDF 分片 ${index + 1}/${totalChunks}` })
-        const chunkResponse = await fetchWithRetries(apiPath(`/api/audit/uploads/${session.uploadId}/chunk?index=${index}`), {
-          method: "PUT",
-          headers: { "Content-Type": "application/octet-stream" },
-          body: chunk,
-        })
-        if (!chunkResponse.ok) {
-          const payload = (await chunkResponse.json().catch(() => ({ error: "上传分片失败" }))) as { error?: string }
-          setError(payload.error || "上传分片失败，请检查网络后重试")
-          setIsUploading(false)
-          setStage({ activeStep: 1, failed: true, complete: false, label: "上传失败" })
-          return
-        }
-        setUploadPercent(Math.round(((index + 1) / totalChunks) * 78))
-      }
-
-      setStage({ activeStep: 1, failed: false, complete: false, label: "正在合并文件并创建任务" })
-      const response = await fetchWithRetries(apiPath(`/api/audit/uploads/${session.uploadId}/complete`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cutoff, totalChunks }),
+      setStage({ activeStep: 1, failed: false, complete: false, label: "正在上传 PDF 到对象存储" })
+      const uploadResponse = await fetchWithRetries(session.uploadUrl, {
+        method: session.method,
+        headers: session.headers,
+        body: file,
       })
-      const payload = (await response.json().catch(() => ({ error: "创建任务失败" }))) as CreatePayload
-      if (!response.ok) {
-        setError(response.status === 413 ? "PDF 文件超过当前上传限制" : payload.error || "创建任务失败")
+      if (!uploadResponse.ok) {
+        setError(`对象存储上传失败：HTTP ${uploadResponse.status}`)
         setIsUploading(false)
         setStage({ activeStep: 1, failed: true, complete: false, label: "上传失败" })
         return
       }
 
       setUploadPercent(86)
-      setCurrentJob(payload.job)
-      await refreshHistory()
-      void pollStatus(payload.job)
+      setStage({ activeStep: 2, failed: false, complete: false, label: "正在提交 PaddleOCR 任务" })
+      const submitResponse = await fetchWithRetries("/api/audit/cloud-uploads/paddleocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: session.jobId, objectKey: session.objectKey }),
+      })
+      const submitted = (await submitResponse.json().catch(() => ({ error: "提交 PaddleOCR 任务失败" }))) as CreatePayload
+      if (!submitResponse.ok) {
+        setError(submitted.error || "提交 PaddleOCR 任务失败")
+        setIsUploading(false)
+        setStage({ activeStep: 2, failed: true, complete: false, label: "提交失败" })
+        return
+      }
+
+      setCurrentJob(submitted.job)
+      await Promise.all([refreshHistory(), refreshCurrentUser()])
+      void pollStatus(submitted.job)
     } catch (fetchError) {
-      setError(fetchError instanceof Error ? `${fetchError.message}。外网上传中断时请直接重试，系统会按分片重新上传。` : "上传请求中断，请重试")
+      setError(fetchError instanceof Error ? `${fetchError.message}。上传中断时请重试。` : "上传请求中断，请重试")
       setIsUploading(false)
       setStage({ activeStep: 1, failed: true, complete: false, label: "上传失败" })
-      return
+    }
+  }
+
+  async function handleSignOut() {
+    setIsSigningOut(true)
+    try {
+      await fetch("/api/auth/logout", { method: "POST" })
+      window.location.reload()
+    } finally {
+      setIsSigningOut(false)
     }
   }
 
   function openHistoryJob(job: AuditHistoryJob) {
     setCurrentJob(job)
-    if (job.runtime === "paddleocr" && job.providerJobId) {
-      setResult(null)
-      setDistribution(emptyDistribution())
-      setUploadPercent(job.status === "complete" ? 100 : 0)
-      setStage(
-        job.status === "failed"
-          ? { activeStep: 3, failed: true, complete: false, label: job.message }
-          : { activeStep: job.status === "complete" ? 5 : 3, failed: false, complete: job.status === "complete", label: job.message },
-      )
-      if (job.status !== "complete" && job.status !== "failed") void pollStatus(job)
-      return
-    }
-    if (job.status === "complete" && job.pythonJobId) {
+    if (job.status === "complete") {
+      setUploadPercent(100)
       setStage({ activeStep: 5, failed: false, complete: true, label: job.message })
       void loadResult(job)
       return
@@ -348,22 +333,29 @@ export function AuditCommandCenter({
     setResult(null)
     setDistribution(emptyDistribution())
     setUploadPercent(0)
-    setStage(job.status === "failed" ? { activeStep: 3, failed: true, complete: false, label: job.message } : null)
+    setStage(
+      job.status === "failed"
+        ? { activeStep: 3, failed: true, complete: false, label: job.message }
+        : { activeStep: 3, failed: false, complete: false, label: job.message },
+    )
+    if (job.status !== "failed" && job.providerJobId) void pollStatus(job)
   }
 
   return (
     <main className="audit-shell min-h-screen bg-[#f3f6f8] text-foreground dark:bg-background">
-      <div className="grid min-h-screen grid-cols-1 xl:grid-cols-[340px_minmax(0,1fr)]">
+      <div className="grid min-h-screen grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)]">
         <aside className="border-r bg-[#edf4f7] p-5 dark:bg-muted/20">
           <div className="mb-6 flex items-center gap-3">
             <div className="grid h-11 w-11 place-items-center rounded-lg bg-[#176b87] text-sm font-black text-white">PDF</div>
-            <div>
-              <h1 className="text-base font-semibold">证件有效期审计</h1>
-              <p className="text-xs text-muted-foreground">本机 OCR 审计工作台</p>
+            <div className="min-w-0">
+              <h1 className="truncate text-base font-semibold">证件有效期审计</h1>
+              <p className="text-xs text-muted-foreground">Cloudflare / R2 / PaddleOCR</p>
             </div>
           </div>
 
-          <form className="space-y-4" onSubmit={handleSubmit}>
+          <CurrentUserCard currentUser={currentUser} isSigningOut={isSigningOut} onSignOut={handleSignOut} />
+
+          <form className="mt-5 space-y-4" onSubmit={handleSubmit}>
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between gap-3">
@@ -380,7 +372,9 @@ export function AuditCommandCenter({
                     <div>
                       <UploadCloud className="mx-auto mb-3 h-8 w-8 text-[#176b87]" />
                       <div className="font-semibold">选择或拖入 PDF</div>
-                      <div className="mt-1 max-w-56 truncate text-xs text-muted-foreground">{fileName || "文件只保存在本机任务目录"}</div>
+                      <div className="mt-1 max-w-64 truncate text-xs text-muted-foreground">
+                        {fileName || "PDF 上传到 R2 后进入 PaddleOCR 队列"}
+                      </div>
                     </div>
                     <Input
                       ref={fileInputRef}
@@ -431,6 +425,22 @@ export function AuditCommandCenter({
               <ProgressSteps stage={stage} />
             </CardContent>
           </Card>
+
+          {currentUser.role === "admin" ? (
+            <Card className="mt-5">
+              <CardHeader>
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle className="text-sm">管理员</CardTitle>
+                  <CollapseButton open={adminOpen} onClick={() => setAdminOpen((open) => !open)} />
+                </div>
+              </CardHeader>
+              {adminOpen ? (
+                <CardContent>
+                  <AdminUserPanel currentUser={currentUser} />
+                </CardContent>
+              ) : null}
+            </Card>
+          ) : null}
         </aside>
 
         <section className="min-w-0 p-5">
@@ -449,7 +459,9 @@ export function AuditCommandCenter({
               <Button variant="outline" className="h-9" onClick={() => setHistoryOpen(true)}>
                 <Archive className="h-4 w-4" />
                 历史
-                <Badge variant="secondary" className="ml-1">{history.length}</Badge>
+                <Badge variant="secondary" className="ml-1">
+                  {history.length}
+                </Badge>
               </Button>
             </div>
           </div>
@@ -522,14 +534,91 @@ export function AuditCommandCenter({
           <ResultTable result={result} />
         </section>
 
-        <HistoryPanel open={historyOpen} jobs={history} activeJobId={currentJob?.id ?? null} loadingJobId={loadingResultJobId} onOpenChange={setHistoryOpen} onOpen={openHistoryJob} />
+        <HistoryPanel
+          open={historyOpen}
+          jobs={history}
+          activeJobId={currentJob?.id ?? null}
+          loadingJobId={loadingResultJobId}
+          onOpenChange={setHistoryOpen}
+          onOpen={openHistoryJob}
+        />
       </div>
 
       <Separator />
       <footer className="flex items-center justify-center gap-2 bg-background px-4 py-3 text-xs text-muted-foreground">
         <FileText className="h-3.5 w-3.5" />
-        Python OCR 服务保留在 127.0.0.1:8787，Next.js 仅负责工作台、历史记录和交互层。
+        Cloudflare Worker 负责会话、D1 历史、R2 对象与 PaddleOCR 编排。
       </footer>
     </main>
+  )
+}
+
+function CurrentUserCard({
+  currentUser,
+  isSigningOut,
+  onSignOut,
+}: {
+  currentUser: PublicUser
+  isSigningOut: boolean
+  onSignOut: () => void
+}) {
+  const uploadUsed = currentUser.quota.usage.uploadBytes
+  const uploadLimit = currentUser.quota.quota.uploadBytesLimit
+  const jobsUsed = currentUser.quota.usage.ocrJobs
+  const jobsLimit = currentUser.quota.quota.ocrJobsLimit
+  const pagesUsed = currentUser.quota.usage.ocrPages
+  const pagesLimit = currentUser.quota.quota.ocrPagesLimit
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <User className="h-4 w-4 shrink-0 text-[#176b87]" />
+              <CardTitle className="truncate text-sm">{currentUser.name}</CardTitle>
+            </div>
+            <div className="mt-1 truncate text-xs text-muted-foreground">{currentUser.email}</div>
+          </div>
+          <Badge variant={currentUser.role === "admin" ? "secondary" : "outline"} className="shrink-0">
+            {currentUser.role === "admin" ? <ShieldCheck className="h-3 w-3" /> : null}
+            {currentUser.role === "admin" ? "admin" : "user"}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <QuotaLine label="上传" usedLabel={formatBytes(uploadUsed)} limitLabel={formatBytes(uploadLimit)} percent={quotaPercent(uploadUsed, uploadLimit)} />
+        <QuotaLine label="OCR 任务" usedLabel={String(jobsUsed)} limitLabel={String(jobsLimit)} percent={quotaPercent(jobsUsed, jobsLimit)} />
+        <QuotaLine label="OCR 页数" usedLabel={String(pagesUsed)} limitLabel={String(pagesLimit)} percent={quotaPercent(pagesUsed, pagesLimit)} />
+        <Button type="button" variant="outline" className="w-full" onClick={onSignOut} disabled={isSigningOut}>
+          <LogOut className="h-4 w-4" />
+          {isSigningOut ? "退出中" : "退出登录"}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+function QuotaLine({
+  label,
+  usedLabel,
+  limitLabel,
+  percent,
+}: {
+  label: string
+  usedLabel: string
+  limitLabel: string
+  percent: number
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="font-semibold text-muted-foreground">{label}</span>
+        <span className="tabular-nums">
+          {usedLabel}/{limitLabel}
+        </span>
+      </div>
+      <Progress value={percent} />
+    </div>
   )
 }

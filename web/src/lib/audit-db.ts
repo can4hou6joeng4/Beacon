@@ -1,12 +1,16 @@
 import type { AuditHistoryJob, AuditStatusValue, AuditSummary } from "./audit-types"
+import { getCloudflareD1Binding } from "./cloudflare-env"
 
 export type AuditRuntime = "local-python" | "paddleocr"
 
 export type CreateJobInput = {
+  id?: string
   filename: string
   cutoff: string
+  userId?: string | null
   runtime?: AuditRuntime
   objectKey?: string
+  uploadBytes?: number
 }
 
 export type ManifestPatch = {
@@ -25,13 +29,11 @@ export type AuditDb = {
   attachProviderJob(id: string, providerJobId: string): Promise<AuditHistoryJob | null>
   updateFromStatus(id: string, status: AuditStatusPatch): Promise<AuditHistoryJob | null>
   updateFromResult(id: string, summary: AuditSummary, manifest?: ManifestPatch): Promise<AuditHistoryJob | null>
+  updateOcrPagesUsed(id: string, pages: number): Promise<AuditHistoryJob | null>
   getJob(id: string): Promise<AuditHistoryJob | null>
+  getJobForUser(id: string, userId: string, role: "admin" | "user"): Promise<AuditHistoryJob | null>
   getJobByPythonId(pythonJobId: string): Promise<AuditHistoryJob | null>
-  listJobs(limit?: number): Promise<AuditHistoryJob[]>
-}
-
-type CloudflareBindings = {
-  AUDIT_DB?: unknown
+  listJobs(limit?: number, user?: { id: string; role: "admin" | "user" }): Promise<AuditHistoryJob[]>
 }
 
 export async function getAuditDb(): Promise<AuditDb> {
@@ -48,18 +50,4 @@ export async function getAuditDb(): Promise<AuditDb> {
 export async function createAuditDbForPath(dbPath: string): Promise<AuditDb> {
   const { createAuditDbForPath: createSqliteAuditDbForPath } = await import("./audit-db-sqlite")
   return createSqliteAuditDbForPath(dbPath)
-}
-
-async function getCloudflareD1Binding(): Promise<unknown | null> {
-  if (process.env.AUDIT_DB_DRIVER === "sqlite") return null
-  if (process.env.NEXT_RUNTIME !== "nodejs" && !process.env.OPEN_NEXT_BUILD_ID) return null
-
-  try {
-    const { getCloudflareContext } = await import("@opennextjs/cloudflare")
-    const context = await getCloudflareContext({ async: true })
-    const env = context.env as CloudflareBindings
-    return env.AUDIT_DB ?? null
-  } catch {
-    return null
-  }
 }

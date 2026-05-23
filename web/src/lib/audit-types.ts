@@ -56,6 +56,7 @@ export type AuditResult = {
 
 export type AuditHistoryJob = {
   id: string
+  userId: string | null
   pythonJobId: string | null
   providerJobId: string | null
   objectKey: string | null
@@ -75,4 +76,6 @@ export type AuditHistoryJob = {
   matches: number
   nearExpiry: number
   needsReview: number
+  uploadBytes: number
+  ocrPagesUsed: number
 }

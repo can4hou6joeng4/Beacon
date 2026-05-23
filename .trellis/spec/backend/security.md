@@ -94,6 +94,79 @@ export async function verifyToken(
 
 ## Session Management
 
+### Project Account Auth Contract
+
+#### 1. Scope / Trigger
+
+- Trigger: production auth, admin user creation, quota enforcement, or audit job ownership changes.
+- The Cloudflare production app uses first-party accounts. Do not restore the retired shared URL token gate for normal access.
+
+#### 2. Signatures
+
+- Auth APIs:
+  - `POST /api/auth/bootstrap`
+  - `POST /api/auth/login`
+  - `POST /api/auth/logout`
+  - `GET /api/auth/me`
+  - `GET /api/admin/users`
+  - `POST /api/admin/users`
+  - `PATCH /api/admin/users/[id]`
+- Session cookie: `pdf_audit_session`, HttpOnly, `SameSite=Lax`, `Secure` on HTTPS.
+- D1 tables: `users`, `sessions`, `user_quotas`, `quota_ledger`.
+- Job ownership columns: `jobs.user_id`, `jobs.upload_bytes`, `jobs.ocr_pages_used`.
+
+#### 3. Contracts
+
+- Only admins can create or disable users; public signup is out of scope.
+- First admin creation is allowed only while `users` is empty and must be guarded by the `AUTH_BOOTSTRAP_TOKEN` Worker secret.
+- Password hashes use PBKDF2-SHA-256 with per-user salt and stored iteration count.
+- Cloudflare Workers Web Crypto rejects PBKDF2 iteration counts above `100000`; keep the default `PASSWORD_ITERATIONS` at or below that value and cover it with a regression test.
+- Session tokens are returned only as cookies and stored in D1 as SHA-256 hashes.
+- Normal users can read, submit, poll, and download only their own audit jobs.
+- Usage quotas are lifetime limits in the MVP for `upload_bytes`, `ocr_jobs`, and `ocr_pages`, tracked in an append-only ledger.
+
+#### 4. Validation & Error Matrix
+
+| Condition | Required response |
+| --- | --- |
+| Missing or invalid session cookie | `401` JSON for API calls; render sign-in UI for the app shell |
+| Non-admin calls admin API | `403` JSON |
+| `AUTH_BOOTSTRAP_TOKEN` missing | `503` from bootstrap |
+| Bootstrap after a user already exists | `409` from bootstrap |
+| Duplicate email | `409` from user creation |
+| Password below minimum length | `400` from user creation/bootstrap |
+| Upload quota exhausted | Reject cloud upload creation before reserving storage |
+| OCR job/page quota exhausted | Reject or refund according to the ledger action already recorded |
+
+#### 5. Good/Base/Bad Cases
+
+- Good: admin logs in, creates a user with quotas, and each new job persists a matching `user_id` and ledger rows.
+- Base: unauthenticated `/api/auth/me` returns `401`; authenticated `/api/auth/me` returns the user and quota snapshot.
+- Bad: accepting a query-string shared token, storing a raw session token, or writing quota usage without a ledger entry.
+
+#### 6. Tests Required
+
+- Unit tests for password hashing, token hashing, and the Cloudflare-compatible PBKDF2 iteration limit.
+- Unit tests for auth DB create/login/session and quota ledger math.
+- Ownership tests for history, result, status, and download paths.
+- Production smoke test after deploy: login with an admin account and call `/api/auth/me` using the returned cookie.
+
+#### 7. Wrong vs Correct
+
+##### Wrong
+
+```typescript
+const PASSWORD_ITERATIONS = 210_000
+const sessionToken = tokenFromDatabase
+```
+
+##### Correct
+
+```typescript
+export const PASSWORD_ITERATIONS = 100_000
+const sessionTokenHash = await hashToken(rawSessionToken)
+```
+
 ### Session Table Schema
 
 Include device tracking fields for session management:

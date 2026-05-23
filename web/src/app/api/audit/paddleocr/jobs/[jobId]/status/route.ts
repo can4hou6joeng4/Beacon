@@ -1,19 +1,18 @@
 import { NextResponse } from "next/server"
-import { isAuthorized } from "@/lib/audit-auth"
-import { fetchPaddleOcrJobSnapshot } from "@/lib/paddleocr"
+import { jsonError } from "@/lib/api-response"
+import { requireAuth } from "@/lib/auth"
 
 export const runtime = "nodejs"
 
 export async function GET(request: Request, { params }: { params: Promise<{ jobId: string }> }) {
   try {
-    if (!isAuthorized(request)) {
-      return NextResponse.json({ error: "未授权，请使用带 token 的链接访问" }, { status: 401 })
-    }
-
-    const { jobId } = await params
-    const snapshot = await fetchPaddleOcrJobSnapshot({ providerJobId: jobId })
-    return NextResponse.json({ snapshot })
+    await requireAuth(request)
+    await params
+    return NextResponse.json(
+      { error: "请通过任务状态接口查询 OCR 状态，直连 provider job 查询已关闭以保证任务归属审计" },
+      { status: 410 },
+    )
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "读取 PaddleOCR 状态失败" }, { status: 500 })
+    return jsonError(error, "读取 PaddleOCR 状态失败")
   }
 }

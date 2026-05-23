@@ -23,7 +23,7 @@
   - R2 binding `AUDIT_BUCKET`.
   - R2 binding `NEXT_INC_CACHE_R2_BUCKET`.
 - Required Worker secrets:
-  - `PDF_CHECKER_TOKEN`.
+  - `AUTH_BOOTSTRAP_TOKEN` for first-admin bootstrap only.
   - `PADDLEOCR_API_TOKEN`.
 
 #### 3. Contracts
@@ -41,22 +41,25 @@
 
 | Condition | Required response |
 | --- | --- |
-| Missing `PDF_CHECKER_TOKEN` secret | Cloud requests without a valid token must return `401`; do not hard-code a fallback token |
+| Missing `AUTH_BOOTSTRAP_TOKEN` secret | `POST /api/auth/bootstrap` must fail closed with `503`; do not hard-code a fallback token |
 | Missing `PADDLEOCR_API_TOKEN` secret | OCR submission must fail closed; never expose provider credentials in response payloads |
+| Unauthenticated normal API request | Return `401` JSON; do not accept the retired shared URL token |
 | `AUDIT_DB_DRIVER` is not `d1` in production | Treat as misconfiguration |
 | `AUDIT_OBJECT_STORE_DRIVER` is not `r2-binding` in production | Treat as misconfiguration |
 | DNS points to a Tunnel/local origin | Treat as stale infrastructure and remove/rebind to Worker custom domain |
 
 #### 5. Good/Base/Bad Cases
 
-- Good: `pdf-audit.bobochang.cn` resolves through Cloudflare and unauthenticated requests return `401` from the Worker.
+- Good: `pdf-audit.bobochang.cn` resolves through Cloudflare, renders the sign-in page, and unauthenticated API requests return `401` from the Worker.
 - Base: Worker deploy succeeds and lists `AUDIT_DB`, `AUDIT_BUCKET`, and `NEXT_INC_CACHE_R2_BUCKET` bindings.
 - Bad: a runbook or script restores `cloudflared`, LaunchAgents, or a local `127.0.0.1:3000` route for production traffic.
 
 #### 6. Tests Required
 
 - Run `npm run test`, `npm run lint`, `npm run build`, and `npm run cf:build` after config changes.
-- Verify the deployed hostname with `curl -I https://pdf-audit.bobochang.cn/`; a `401` without token proves the Worker and auth middleware are active.
+- Verify the deployed hostname with `curl -I https://pdf-audit.bobochang.cn/`; a `200` sign-in shell proves the Worker route is active.
+- Verify an unauthenticated API request such as `curl -fsS https://pdf-audit.bobochang.cn/api/auth/me` fails with `401`.
+- Verify a real account login can read `/api/auth/me` with the returned HttpOnly session cookie.
 - Verify Wrangler deployment output includes the Worker custom domain and the expected bindings.
 - Search the repository for real secrets before commit.
 
@@ -75,6 +78,7 @@ cloudflared tunnel route dns pdf-certificate-expiry-checker pdf-audit.bobochang.
 cd web
 npm run cf:deploy
 curl -I https://pdf-audit.bobochang.cn/
+curl -fsS https://pdf-audit.bobochang.cn/api/auth/me
 ```
 
 ### Overview

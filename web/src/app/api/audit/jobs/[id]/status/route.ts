@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
+import { jsonError } from "@/lib/api-response"
 import { analyzePaddleOcrJsonl } from "@/lib/audit-analyzer"
+import { requireAuth } from "@/lib/auth"
 import { getAuditDb } from "@/lib/audit-db"
-import { fetchPythonStatus, stageFromStatus } from "@/lib/audit-python"
+import { stageFromStatus } from "@/lib/audit-python"
 import {
   createCloudObjectStoreConfig,
   fetchCloudObjectText,
@@ -9,14 +11,16 @@ import {
   siblingObjectKey,
 } from "@/lib/cloud-object-store"
 import { fetchPaddleOcrJobSnapshot, fetchText } from "@/lib/paddleocr"
+import { consumeOcrPageQuota } from "@/lib/quota"
 
 export const runtime = "nodejs"
 
-export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const context = await requireAuth(request)
     const { id } = await params
     const db = await getAuditDb()
-    const job = await db.getJob(id)
+    const job = await db.getJobForUser(id, context.user.id, context.user.role)
     if (!job) return NextResponse.json({ error: "任务不存在" }, { status: 404 })
 
     if (job.runtime === "paddleocr") {
@@ -30,6 +34,12 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
         if (!existingResult) {
           const jsonl = await fetchText(snapshot.jsonUrl)
           const analyzed = analyzePaddleOcrJsonl({ jobId: id, cutoff: job.cutoff, jsonl })
+          const pagesUsed = await consumeOcrPageQuota({
+            context,
+            jobId: id,
+            userId: job.userId ?? context.user.id,
+            pages: analyzed.result.summary.ocr_total_pages ?? analyzed.result.summary.pages_ocr,
+          })
           const ocrKey = siblingObjectKey({ objectKey: job.objectKey, filename: "ocr.txt", prefix: config.prefix })
           const csvKey = siblingObjectKey({ objectKey: job.objectKey, filename: "matches.csv", prefix: config.prefix })
           const rawKey = siblingObjectKey({ objectKey: job.objectKey, filename: "paddleocr.jsonl", prefix: config.prefix })
@@ -45,6 +55,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
             }),
           ])
           updated = await db.updateFromResult(id, analyzed.result.summary)
+          updated = await db.updateOcrPagesUsed(id, pagesUsed)
         }
       }
       return NextResponse.json({
@@ -55,12 +66,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       })
     }
 
-    if (!job.pythonJobId) return NextResponse.json({ error: "任务不存在" }, { status: 404 })
-
-    const status = await fetchPythonStatus(job.pythonJobId)
-    const updated = await db.updateFromStatus(id, status)
-    return NextResponse.json({ job: updated, status, stage: stageFromStatus(status) })
+    return NextResponse.json({ error: "本机 OCR 状态查询已停用，请使用云端 PaddleOCR 任务" }, { status: 410 })
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "读取任务状态失败" }, { status: 500 })
+    return jsonError(error, "读取任务状态失败")
   }
 }
