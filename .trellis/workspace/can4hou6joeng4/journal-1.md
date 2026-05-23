@@ -67,7 +67,10 @@ Migrated the PDF audit service to Cloudflare-only production runtime with Worker
 
 ### Main Changes
 
-(Add details)
+- Added an admin-only user management dialog opened from the audit console toolbar.
+- Removed the always-visible sidebar admin panel so the sidebar stays focused on account quota, upload controls, and pipeline state.
+- Reworked the admin user panel layout for a wider responsive dialog surface.
+- Updated frontend component specs so future work keeps admin user management in a dialog.
 
 ### Git Commits
 
@@ -79,7 +82,11 @@ Migrated the PDF audit service to Cloudflare-only production runtime with Worker
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] `npm run test`
+- [OK] `npm run lint`
+- [OK] `npm run build`
+- [OK] `npm run cf:build`
+- [OK] `git diff --check`
 
 ### Status
 
@@ -209,6 +216,39 @@ Implemented username/account login, deployed the Cloudflare Worker, reset produc
 |------|---------|
 | `1d30d91` | (see git log) |
 | `0c7483f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 7: Admin user management dialog
+
+**Date**: 2026-05-24
+**Task**: Admin user management dialog
+**Branch**: `codex/cloud-r2-upload-quota-ui`
+
+### Summary
+
+Moved admin user management from the sidebar into an admin-only dialog, improved quota/user layout for the wider dialog surface, updated frontend component specs, and verified test, lint, Next build, and OpenNext Cloudflare build.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `06af1e8` | (see git log) |
 
 ### Testing
 
