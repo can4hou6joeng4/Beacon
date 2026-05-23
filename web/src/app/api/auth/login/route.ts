@@ -5,6 +5,8 @@ import { AUTH_SESSION_COOKIE, cookieOptions, loginWithPassword } from "@/lib/aut
 export const runtime = "nodejs"
 
 type LoginPayload = {
+  username?: string
+  account?: string
   email?: string
   password?: string
 }
@@ -13,7 +15,7 @@ export async function POST(request: Request) {
   try {
     const payload = (await request.json().catch(() => null)) as LoginPayload | null
     const result = await loginWithPassword({
-      email: payload?.email || "",
+      login: payload?.username || payload?.account || payload?.email || "",
       password: payload?.password || "",
       userAgent: request.headers.get("user-agent"),
     })

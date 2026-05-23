@@ -23,7 +23,8 @@ export async function POST(request: Request) {
     await requireAdmin(request)
     const payload = (await request.json().catch(() => null)) as Partial<CreateUserInput> | null
     const user = await createUser({
-      email: payload?.email || "",
+      username: payload?.username || payload?.email || "",
+      email: payload?.email,
       name: payload?.name || "",
       password: payload?.password || "",
       role: payload?.role || "user",

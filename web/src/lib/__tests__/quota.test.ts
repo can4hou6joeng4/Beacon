@@ -35,6 +35,7 @@ describe("quota service", () => {
     const auditDb = await createAuditDbForPath(dbPath)
     const authDb = await createAuthDbForPath(dbPath)
     const user = await authDb.createUser({
+      username: "quota",
       email: "quota@example.com",
       name: "Quota",
       role: "user",
@@ -90,6 +91,7 @@ describe("quota service", () => {
     const auditDb = await createAuditDbForPath(dbPath)
     const authDb = await createAuthDbForPath(dbPath)
     const user = await authDb.createUser({
+      username: "upload_refund",
       email: "upload-refund@example.com",
       name: "Upload Refund",
       role: "user",
@@ -147,6 +149,7 @@ describe("quota service", () => {
     const auditDb = await createAuditDbForPath(dbPath)
     const authDb = await createAuthDbForPath(dbPath)
     const user = await authDb.createUser({
+      username: "ocr_refund",
       email: "ocr-refund@example.com",
       name: "OCR Refund",
       role: "user",

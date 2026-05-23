@@ -15,7 +15,7 @@ vi.mock("../auth-db", async (importOriginal) => {
 describe("auth quota validation", () => {
   it("rejects upload quotas above the Cloudflare R2 free storage tier", async () => {
     await expect(createUser({
-      email: "quota@example.com",
+      username: "quota",
       name: "Quota",
       password: "long-password",
       role: "user",
@@ -32,7 +32,7 @@ describe("auth quota validation", () => {
 
   it("rejects OCR page quotas above the PaddleOCR daily PDF page limit", async () => {
     await expect(createUser({
-      email: "ocr@example.com",
+      username: "ocr",
       name: "OCR",
       password: "long-password",
       role: "user",
@@ -44,6 +44,23 @@ describe("auth quota validation", () => {
     })).rejects.toMatchObject({
       status: 400,
       code: "OCR_PAGE_LIMIT_EXCEEDED",
+    })
+  })
+
+  it("rejects invalid usernames", async () => {
+    await expect(createUser({
+      username: "bo",
+      name: "Short",
+      password: "long-password",
+      role: "user",
+      quota: {
+        uploadBytesLimit: DEFAULT_UPLOAD_QUOTA_BYTES,
+        ocrJobsLimit: 25,
+        ocrPagesLimit: PADDLEOCR_DAILY_PDF_PAGE_LIMIT,
+      },
+    })).rejects.toMatchObject({
+      status: 400,
+      code: "INVALID_USERNAME",
     })
   })
 })

@@ -23,6 +23,7 @@ describe("auth db", () => {
     const dbPath = tempDbPath()
     const authDb = await createAuthDbForPath(dbPath)
     const user = await authDb.createUser({
+      username: "Admin_User",
       email: " Admin@Example.COM ",
       name: "Admin",
       role: "admin",
@@ -37,6 +38,7 @@ describe("auth db", () => {
     })
 
     expect(user).toMatchObject({
+      username: "admin_user",
       email: "admin@example.com",
       name: "Admin",
       role: "admin",
@@ -63,9 +65,18 @@ describe("auth db", () => {
 
     await expect(authDb.getContextByTokenHash(rawToken)).resolves.toBeNull()
     await expect(authDb.getContextByTokenHash(tokenHash)).resolves.toMatchObject({
-      user: { id: user.id, email: "admin@example.com" },
+      user: { id: user.id, username: "admin_user" },
       session: { id: session.id, userId: user.id },
       quota: { remaining: { uploadBytes: 1024, ocrJobs: 3, ocrPages: 200 } },
+    })
+
+    await expect(authDb.getUserByLogin("ADMIN_USER")).resolves.toMatchObject({
+      id: user.id,
+      username: "admin_user",
+    })
+    await expect(authDb.getUserByLogin("admin@example.com")).resolves.toMatchObject({
+      id: user.id,
+      username: "admin_user",
     })
   })
 
@@ -74,6 +85,7 @@ describe("auth db", () => {
     const auditDb = await createAuditDbForPath(dbPath)
     const authDb = await createAuthDbForPath(dbPath)
     const user = await authDb.createUser({
+      username: "quota_user",
       email: "user@example.com",
       name: "User",
       role: "user",
@@ -104,6 +116,7 @@ describe("auth db", () => {
     const dbPath = tempDbPath()
     const authDb = await createAuthDbForPath(dbPath)
     const user = await authDb.createUser({
+      username: "editor",
       email: "editor@example.com",
       name: "Editor",
       role: "user",

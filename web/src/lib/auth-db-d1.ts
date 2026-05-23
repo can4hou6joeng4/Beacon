@@ -5,6 +5,7 @@ import {
   assertStatus,
   emptyQuotaSnapshot,
   normalizeEmail,
+  normalizeUsername,
   publicUser,
   type AuthDb,
   type CreateUserRecordInput,
@@ -17,6 +18,7 @@ import type { D1DatabaseLike } from "./cloudflare-env"
 
 type UserRow = {
   id: string
+  username: string | null
   email: string
   name: string
   role: string
@@ -60,7 +62,8 @@ export function createAuthD1Db(db: unknown): AuthDb {
     async createUser(input: CreateUserRecordInput) {
       const now = new Date().toISOString()
       const id = randomUUID()
-      const email = normalizeEmail(input.email)
+      const username = normalizeUsername(input.username)
+      const email = input.email ? normalizeEmail(input.email) : legacyEmailForUsername(username)
       const quota: UserQuota = {
         userId: id,
         uploadBytesLimit: input.quota.uploadBytesLimit,
@@ -71,11 +74,12 @@ export function createAuthD1Db(db: unknown): AuthDb {
       }
       const insertUser = d1.prepare(`
         INSERT INTO users (
-          id, email, name, role, password_hash, password_salt, password_iterations, status, created_at, updated_at, last_login_at
+          id, username, email, name, role, password_hash, password_salt, password_iterations, status, created_at, updated_at, last_login_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
       `).bind(
         id,
+        username,
         email,
         input.name.trim(),
         input.role,
@@ -99,8 +103,11 @@ export function createAuthD1Db(db: unknown): AuthDb {
       return publicUser(mapUser(await requireUserRow(d1, id)), { quota, usage: zeroUsage(), remaining: quotaToUsage(quota) })
     },
 
-    async getUserByEmail(email: string) {
-      const row = await d1.prepare("SELECT * FROM users WHERE email = ?").bind(normalizeEmail(email)).first<UserRow>()
+    async getUserByLogin(login: string) {
+      const normalized = normalizeUsername(login)
+      const row = await d1.prepare("SELECT * FROM users WHERE username = ? OR email = ?")
+        .bind(normalized, normalizeEmail(login))
+        .first<UserRow>()
       return row ? mapCredentials(row) : null
     },
 
@@ -262,6 +269,7 @@ async function requireUserRow(d1: D1DatabaseLike, id: string): Promise<UserRow> 
 function mapUser(row: UserRow): AppUser {
   return {
     id: row.id,
+    username: row.username || fallbackUsername(row.email),
     email: row.email,
     name: row.name,
     role: assertRole(row.role),
@@ -270,6 +278,15 @@ function mapUser(row: UserRow): AppUser {
     updatedAt: row.updated_at,
     lastLoginAt: row.last_login_at,
   }
+}
+
+function legacyEmailForUsername(username: string): string {
+  return `${username}@local.invalid`
+}
+
+function fallbackUsername(email: string): string {
+  const localPart = email.split("@")[0]?.trim().toLowerCase()
+  return localPart || email.trim().toLowerCase()
 }
 
 function mapCredentials(row: UserRow): UserCredentials {

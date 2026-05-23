@@ -579,7 +579,7 @@ function CurrentUserCard({
               <User className="h-4 w-4 shrink-0 text-[#176b87]" />
               <CardTitle className="truncate text-sm">{currentUser.name}</CardTitle>
             </div>
-            <div className="mt-1 truncate text-xs text-muted-foreground">{currentUser.email}</div>
+            <div className="mt-1 truncate text-xs text-muted-foreground">{currentUser.username}</div>
           </div>
           <Badge variant={currentUser.role === "admin" ? "secondary" : "outline"} className="shrink-0">
             {currentUser.role === "admin" ? <ShieldCheck className="h-3 w-3" /> : null}

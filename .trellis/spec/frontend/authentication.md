@@ -67,8 +67,73 @@ export async function GET(request: Request) {
   header or request body token. Missing bootstrap token must fail closed with
   `503`.
 - Passwords must be at least 10 characters.
-- Emails are normalized before lookup or insert.
-- Duplicate emails should become `409 USER_EXISTS`, not a generic `500`.
+- User login is username/account based. The UI label is `账号`, and
+  `CreateUserInput.username` is the required account identifier.
+- Usernames are normalized to lowercase before lookup or insert.
+- Email is optional compatibility data; do not require an email for login or
+  admin user creation.
+- Duplicate usernames should become `409 USER_EXISTS`, not a generic `500`.
+
+## Account Login Contract
+
+### 1. Scope / Trigger
+
+- Trigger: authentication touches UI payloads, API routes, service validation,
+  D1 schema, and SQLite fallback schema.
+
+### 2. Signatures
+
+- `POST /api/auth/login` accepts `{ username?: string, account?: string, email?: string, password?: string }`.
+- `loginWithPassword({ login, password, userAgent })` looks up users through
+  `AuthDb.getUserByLogin(login)`.
+- `CreateUserInput` requires `username` and allows optional `email`.
+- `users.username` is the canonical unique account column.
+
+### 3. Contracts
+
+- Frontend login and admin creation forms display `账号`.
+- Browser login requests should send `{ username, password }`.
+- Server routes may accept legacy `email` as a fallback login field while old
+  clients are phased out.
+- `PublicUser.username` is the display identifier for account cards and admin
+  user rows.
+
+### 4. Validation & Error Matrix
+
+| Condition | Error |
+| --- | --- |
+| Username not `3-32` chars of lowercase-normalized letters, digits, `_`, `-`, starting with alphanumeric | `400 INVALID_USERNAME` |
+| Optional email is present but invalid | `400 INVALID_EMAIL` |
+| Duplicate username or compatibility email | `409 USER_EXISTS` |
+| Missing or wrong password | `401 INVALID_CREDENTIALS` |
+| Disabled user attempts login | `401 INVALID_CREDENTIALS` |
+
+### 5. Good/Base/Bad Cases
+
+- Good: `bobochang` creates an active admin and logs in through the `账号` field.
+- Base: legacy email-shaped login still resolves through `getUserByLogin`.
+- Bad: `bo` or `@bad` is rejected before password hashing or database writes.
+
+### 6. Tests Required
+
+- Auth DB tests assert username normalization, lookup by username, and optional
+  legacy email lookup.
+- Auth service tests assert username validation errors.
+- Existing quota/admin tests must construct users with `username`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+body: JSON.stringify({ email, password })
+```
+
+#### Correct
+
+```tsx
+body: JSON.stringify({ username: account, password })
+```
 
 ## Password And Token Storage
 

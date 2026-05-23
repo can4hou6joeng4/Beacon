@@ -19,7 +19,8 @@ export type UserCredentials = AppUser & {
   passwordIterations: number
 }
 
-export type CreateUserRecordInput = Omit<CreateUserInput, "password"> & {
+export type CreateUserRecordInput = Omit<CreateUserInput, "password" | "email"> & {
+  email: string
   passwordHash: string
   passwordSalt: string
   passwordIterations: number
@@ -45,7 +46,7 @@ export type QuotaLedgerInput = {
 export type AuthDb = {
   countUsers(): Promise<number>
   createUser(input: CreateUserRecordInput): Promise<PublicUser>
-  getUserByEmail(email: string): Promise<UserCredentials | null>
+  getUserByLogin(login: string): Promise<UserCredentials | null>
   getUserById(id: string): Promise<AppUser | null>
   listUsers(): Promise<PublicUser[]>
   updateUser(id: string, input: UpdateUserInput): Promise<PublicUser | null>
@@ -97,6 +98,10 @@ export function emptyQuotaSnapshot(userId: string, now = new Date().toISOString(
 
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase()
+}
+
+export function normalizeUsername(username: string): string {
+  return username.trim().toLowerCase()
 }
 
 export function assertRole(value: string): UserRole {

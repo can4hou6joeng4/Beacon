@@ -14,7 +14,7 @@ type LoginResponse = {
 }
 
 export function SignInPanel() {
-  const [email, setEmail] = useState("")
+  const [account, setAccount] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -27,7 +27,7 @@ export function SignInPanel() {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ username: account, password }),
       })
       const payload = (await response.json().catch(() => ({}))) as LoginResponse
       if (!response.ok) {
@@ -73,13 +73,12 @@ export function SignInPanel() {
               ) : null}
               <form className="space-y-4" onSubmit={handleSubmit}>
                 <div className="space-y-2">
-                  <Label htmlFor="email">邮箱</Label>
+                  <Label htmlFor="account">账号</Label>
                   <Input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    autoComplete="email"
+                    id="account"
+                    value={account}
+                    onChange={(event) => setAccount(event.target.value)}
+                    autoComplete="username"
                     required
                   />
                 </div>

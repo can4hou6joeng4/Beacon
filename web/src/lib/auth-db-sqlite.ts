@@ -8,6 +8,7 @@ import {
   assertStatus,
   emptyQuotaSnapshot,
   normalizeEmail,
+  normalizeUsername,
   publicUser,
   type AuthDb,
   type CreateUserRecordInput,
@@ -19,6 +20,7 @@ import type { AppUser, AuthContext, AuthSession, QuotaAction, QuotaResource, Use
 
 type UserRow = {
   id: string
+  username: string | null
   email: string
   name: string
   role: string
@@ -76,15 +78,17 @@ export function createAuthDbForPath(dbPath: string): AuthDb {
     async createUser(input: CreateUserRecordInput) {
       const now = new Date().toISOString()
       const id = randomUUID()
-      const email = normalizeEmail(input.email)
+      const username = normalizeUsername(input.username)
+      const email = input.email ? normalizeEmail(input.email) : legacyEmailForUsername(username)
       const create = db.transaction(() => {
         db.prepare(`
           INSERT INTO users (
-            id, email, name, role, password_hash, password_salt, password_iterations, status, created_at, updated_at, last_login_at
+            id, username, email, name, role, password_hash, password_salt, password_iterations, status, created_at, updated_at, last_login_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
         `).run(
           id,
+          username,
           email,
           input.name.trim(),
           input.role,
@@ -105,8 +109,9 @@ export function createAuthDbForPath(dbPath: string): AuthDb {
       return publicUser(user, await this.getQuotaSnapshot(id))
     },
 
-    async getUserByEmail(email: string) {
-      const row = db.prepare("SELECT * FROM users WHERE email = ?").get(normalizeEmail(email)) as UserRow | undefined
+    async getUserByLogin(login: string) {
+      const normalized = normalizeUsername(login)
+      const row = db.prepare("SELECT * FROM users WHERE username = ? OR email = ?").get(normalized, normalizeEmail(login)) as UserRow | undefined
       return row ? mapCredentials(row) : null
     },
 
@@ -297,6 +302,7 @@ function migrate(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
+      username TEXT UNIQUE,
       email TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
       role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
@@ -345,6 +351,7 @@ function migrate(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
     CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username);
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     CREATE INDEX IF NOT EXISTS idx_quota_ledger_user_resource ON quota_ledger(user_id, resource);
     CREATE INDEX IF NOT EXISTS idx_quota_ledger_job_id ON quota_ledger(job_id);
@@ -355,6 +362,10 @@ function migrate(db: Database.Database): void {
     addColumnIfMissing(db, "jobs", "upload_bytes", "INTEGER NOT NULL DEFAULT 0")
     addColumnIfMissing(db, "jobs", "ocr_pages_used", "INTEGER NOT NULL DEFAULT 0")
     db.exec("CREATE INDEX IF NOT EXISTS idx_jobs_user_id ON jobs(user_id)")
+  }
+  if (tableExists(db, "users")) {
+    addColumnIfMissing(db, "users", "username", "TEXT")
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)")
   }
 }
 
@@ -373,6 +384,7 @@ function addColumnIfMissing(db: Database.Database, table: string, column: string
 function mapUser(row: UserRow): AppUser {
   return {
     id: row.id,
+    username: row.username || fallbackUsername(row.email),
     email: row.email,
     name: row.name,
     role: assertRole(row.role),
@@ -381,6 +393,15 @@ function mapUser(row: UserRow): AppUser {
     updatedAt: row.updated_at,
     lastLoginAt: row.last_login_at,
   }
+}
+
+function legacyEmailForUsername(username: string): string {
+  return `${username}@local.invalid`
+}
+
+function fallbackUsername(email: string): string {
+  const localPart = email.split("@")[0]?.trim().toLowerCase()
+  return localPart || email.trim().toLowerCase()
 }
 
 function mapCredentials(row: UserRow): UserCredentials {

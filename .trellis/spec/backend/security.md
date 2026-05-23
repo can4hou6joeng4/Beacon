@@ -32,6 +32,8 @@ Do not restore the retired shared URL token gate for normal access.
 - The first admin can be bootstrapped only while the `users` table is empty.
 - Bootstrap requires `AUTH_BOOTSTRAP_TOKEN`; missing config fails with `503`.
 - Admin UI must prevent self-disable, and the server remains the authority.
+- Admin-created accounts use a username/account identifier, not an email-only
+  login. The canonical login column is `users.username`.
 
 ## Password And Session Tokens
 
@@ -45,6 +47,64 @@ Reference: `web/src/lib/auth-crypto.ts`.
 
 Never log raw passwords, raw session tokens, bootstrap tokens, PaddleOCR tokens,
 or R2 secrets.
+
+## Username Account Contract
+
+### 1. Scope / Trigger
+
+- Trigger: first-party auth login and account creation cross the API, service,
+  database, and frontend boundaries.
+
+### 2. Signatures
+
+- `loginWithPassword({ login, password, userAgent })`
+- `AuthDb.getUserByLogin(login)`
+- `CreateUserInput.username`
+- `users.username TEXT UNIQUE`
+
+### 3. Contracts
+
+- Username is the required account identifier for new users.
+- Normalize usernames with `normalizeUsername(...)` before insert or lookup.
+- Keep optional email as compatibility metadata only; do not require it for
+  login, admin creation, or bootstrap.
+- If the D1 `email` column remains `NOT NULL` for compatibility, generate a
+  non-public placeholder such as `{username}@local.invalid` when no email is
+  provided.
+
+### 4. Validation & Error Matrix
+
+| Condition | Error |
+| --- | --- |
+| Invalid username shape | `400 INVALID_USERNAME` |
+| Duplicate username or compatibility email | `409 USER_EXISTS` |
+| Missing/wrong password or disabled user | `401 INVALID_CREDENTIALS` |
+
+### 5. Good/Base/Bad Cases
+
+- Good: `bobochang` is accepted and normalized to `bobochang`.
+- Base: `Bobochang` normalizes to `bobochang`.
+- Bad: short or symbol-prefixed usernames fail before hashing.
+
+### 6. Tests Required
+
+- Auth service rejects invalid usernames.
+- Auth DB can create and retrieve users by username.
+- Session lookup still returns `PublicUser.username`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```ts
+await db.getUserByEmail(input.email)
+```
+
+#### Correct
+
+```ts
+await db.getUserByLogin(input.login)
+```
 
 ## Job Ownership
 

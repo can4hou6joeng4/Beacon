@@ -7,6 +7,8 @@ import { DEFAULT_OCR_JOB_QUOTA, DEFAULT_OCR_PAGE_QUOTA, DEFAULT_UPLOAD_QUOTA_BYT
 export const runtime = "nodejs"
 
 type BootstrapPayload = {
+  username?: string
+  account?: string
   email?: string
   name?: string
   password?: string
@@ -25,7 +27,8 @@ export async function POST(request: Request) {
     const payload = (await request.json().catch(() => null)) as BootstrapPayload | null
     verifyBootstrapRequest(request, payload?.token)
     const user = await bootstrapAdmin({
-      email: payload?.email || "",
+      username: payload?.username || payload?.account || payload?.email || "",
+      email: payload?.email,
       name: payload?.name || "Admin",
       password: payload?.password || "",
       quota: {

@@ -1,5 +1,5 @@
 import { AppError } from "./app-error"
-import { getAuthDb, normalizeEmail, publicUser, type CreateUserRecordInput, type UpdateUserInput } from "./auth-db"
+import { getAuthDb, normalizeEmail, normalizeUsername, publicUser, type CreateUserRecordInput, type UpdateUserInput } from "./auth-db"
 import { generateSessionToken, hashPassword, hashToken, verifyPassword } from "./auth-crypto"
 import type { AuthContext, CreateUserInput, PublicUser } from "./auth-types"
 import { clampQuotaLimit, MAX_OCR_PAGE_QUOTA, MAX_UPLOAD_QUOTA_BYTES } from "./quota-limits"
@@ -64,12 +64,12 @@ export async function requireAdmin(request: Request): Promise<AuthContext> {
 }
 
 export async function loginWithPassword(input: {
-  email: string
+  login: string
   password: string
   userAgent?: string | null
 }): Promise<LoginResult> {
   const db = await getAuthDb()
-  const user = await db.getUserByEmail(input.email)
+  const user = await db.getUserByLogin(input.login)
   if (!user || user.status !== "active") {
     throw new AppError("账号或密码不正确", { status: 401, code: "INVALID_CREDENTIALS" })
   }
@@ -115,7 +115,8 @@ export async function createUser(input: CreateUserInput): Promise<PublicUser> {
   const db = await getAuthDb()
   const password = await hashPassword(input.password)
   const record: CreateUserRecordInput = {
-    email: normalizeEmail(input.email),
+    username: normalizeUsername(input.username),
+    email: normalizeOptionalEmail(input.email),
     name: input.name.trim(),
     role: input.role,
     quota: normalizeQuota(input.quota),
@@ -127,14 +128,15 @@ export async function createUser(input: CreateUserInput): Promise<PublicUser> {
     return await db.createUser(record)
   } catch (error) {
     if (isUniqueConstraintError(error)) {
-      throw new AppError("该邮箱已经存在", { status: 409, code: "USER_EXISTS" })
+      throw new AppError("该账号已经存在", { status: 409, code: "USER_EXISTS" })
     }
     throw error
   }
 }
 
 export async function bootstrapAdmin(input: {
-  email: string
+  username: string
+  email?: string
   name: string
   password: string
   quota: CreateUserInput["quota"]
@@ -185,10 +187,8 @@ export function readCookie(cookieHeader: string | null, name: string): string | 
 }
 
 function validateCreateUserInput(input: CreateUserInput): void {
-  const email = normalizeEmail(input.email)
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    throw new AppError("请输入有效邮箱", { status: 400, code: "INVALID_EMAIL" })
-  }
+  validateUsername(input.username)
+  normalizeOptionalEmail(input.email)
   if (!input.name.trim()) {
     throw new AppError("请输入用户名称", { status: 400, code: "INVALID_NAME" })
   }
@@ -199,6 +199,25 @@ function validateCreateUserInput(input: CreateUserInput): void {
     throw new AppError(`密码至少需要 ${MIN_PASSWORD_LENGTH} 位`, { status: 400, code: "WEAK_PASSWORD" })
   }
   normalizeQuota(input.quota)
+}
+
+function validateUsername(username: string): void {
+  const normalized = normalizeUsername(username)
+  if (!/^[a-z0-9][a-z0-9_-]{2,31}$/.test(normalized)) {
+    throw new AppError("账号需为 3-32 位字母、数字、下划线或连字符，并以字母或数字开头", {
+      status: 400,
+      code: "INVALID_USERNAME",
+    })
+  }
+}
+
+function normalizeOptionalEmail(email: string | undefined): string {
+  if (!email?.trim()) return ""
+  const normalized = normalizeEmail(email)
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalized)) {
+    throw new AppError("请输入有效邮箱", { status: 400, code: "INVALID_EMAIL" })
+  }
+  return normalized
 }
 
 function normalizeQuota(quota: CreateUserInput["quota"]): CreateUserInput["quota"] {

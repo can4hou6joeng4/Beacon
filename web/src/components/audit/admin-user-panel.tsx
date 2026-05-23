@@ -29,7 +29,7 @@ type UserPayload = {
 }
 
 type CreateFormState = {
-  email: string
+  username: string
   name: string
   password: string
   role: UserRole
@@ -48,7 +48,7 @@ type UserEditState = {
 }
 
 const DEFAULT_CREATE_FORM: CreateFormState = {
-  email: "",
+  username: "",
   name: "",
   password: "",
   role: "user",
@@ -103,7 +103,7 @@ export function AdminUserPanel({ currentUser }: { currentUser: PublicUser }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: form.email,
+          username: form.username,
           name: form.name,
           password: form.password,
           role: form.role,
@@ -195,8 +195,14 @@ export function AdminUserPanel({ currentUser }: { currentUser: PublicUser }) {
         </div>
         <div className="grid gap-3">
           <div className="grid gap-2">
-            <Label htmlFor="admin-email">邮箱</Label>
-            <Input id="admin-email" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required />
+            <Label htmlFor="admin-username">账号</Label>
+            <Input
+              id="admin-username"
+              value={form.username}
+              onChange={(event) => setForm({ ...form, username: event.target.value })}
+              autoComplete="username"
+              required
+            />
           </div>
           <div className="grid gap-2">
             <Label htmlFor="admin-name">名称</Label>
@@ -269,7 +275,7 @@ export function AdminUserPanel({ currentUser }: { currentUser: PublicUser }) {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1 space-y-2">
                   <Input value={edit.name} onChange={(event) => updateEdit(user.id, { name: event.target.value })} />
-                  <div className="truncate text-xs text-muted-foreground">{user.email}</div>
+                  <div className="truncate text-xs text-muted-foreground">{user.username}</div>
                 </div>
                 <Badge variant={user.status === "active" ? "secondary" : "destructive"} className="shrink-0">
                   {user.status === "active" ? "active" : "disabled"}

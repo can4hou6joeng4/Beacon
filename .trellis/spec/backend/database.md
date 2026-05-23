@@ -64,6 +64,74 @@ When adding a persisted field:
 4. Apply the matching D1 schema change remotely with Wrangler.
 5. Add or update tests under `web/src/lib/__tests__/`.
 
+For production D1 migrations, keep the remote `d1_migrations` table in sync with
+the migration files. If an emergency/manual `d1 execute --remote` applies a
+schema file outside `wrangler d1 migrations apply`, insert the matching migration
+record after verifying the schema so future migration runs do not attempt to
+repeat an `ALTER TABLE`.
+
+## Auth User Schema Contract
+
+### 1. Scope / Trigger
+
+- Trigger: auth user rows are read by login, session context, admin lists, and
+  quota ownership paths.
+
+### 2. Signatures
+
+- `users.username TEXT UNIQUE` is the canonical login account column.
+- `users.email TEXT NOT NULL UNIQUE` may remain as compatibility metadata in the
+  current D1 schema.
+- `AuthDb.getUserByLogin(login)` should search username first and tolerate
+  legacy email-shaped login values.
+
+### 3. Contracts
+
+- New users must have a normalized username.
+- D1 and SQLite drivers must both insert/select/map `username`.
+- `AppUser` and `PublicUser` include `username`.
+- If no email is supplied, drivers may write `{username}@local.invalid` to
+  satisfy legacy `email NOT NULL` constraints.
+
+### 4. Validation & Error Matrix
+
+| Condition | Error |
+| --- | --- |
+| Duplicate username/email unique constraint | service maps to `409 USER_EXISTS` |
+| Missing remote `username` column after deploy | D1 insert/login fail; apply migration before deploy use |
+| Manual migration applied but not recorded | future migration apply may fail on duplicate column |
+
+### 5. Good/Base/Bad Cases
+
+- Good: D1 table has `username`, `idx_users_username`, and matching
+  `d1_migrations` row.
+- Base: existing email users map to fallback usernames until reset/migration.
+- Bad: UI sends only `email` for newly created accounts.
+
+### 6. Tests Required
+
+- SQLite auth DB tests cover username insert, lookup, and mapped public user.
+- Service tests cover invalid username rejection.
+- Build and Cloudflare build must pass after schema type updates.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```sql
+ALTER TABLE users ADD COLUMN username TEXT;
+-- forgot d1_migrations when applied manually
+```
+
+#### Correct
+
+```sql
+ALTER TABLE users ADD COLUMN username TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username);
+INSERT INTO d1_migrations (id, name, applied_at)
+VALUES (3, '0003_username_login.sql', datetime('now'));
+```
+
 ## Query Patterns
 
 Use prepared SQL with bound parameters. Do not interpolate user-controlled

@@ -5,6 +5,7 @@ export type QuotaAction = "reserve" | "consume" | "refund" | "adjust"
 
 export type AppUser = {
   id: string
+  username: string
   email: string
   name: string
   role: UserRole
@@ -50,7 +51,8 @@ export type AuthContext = {
 }
 
 export type CreateUserInput = {
-  email: string
+  username: string
+  email?: string
   name: string
   password: string
   role: UserRole
