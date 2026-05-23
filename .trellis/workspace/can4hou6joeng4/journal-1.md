@@ -19,7 +19,16 @@ Implemented PaddleOCR async cloud upload/object storage path, verified tests/lin
 
 ### Main Changes
 
-(Add details)
+- Added username/account login across auth types, service validation, D1 driver,
+  SQLite fallback, API routes, and the login/admin UI.
+- Added D1 migration `0003_username_login.sql` and updated auth/security/database
+  specs with the new account contract.
+- Deployed the updated Cloudflare Worker, applied the D1 schema migration,
+  cleared production D1 business/auth data, deleted known R2 job artifacts, and
+  created the fresh `bobochang` admin account.
+- Verified production D1 counts and custom-domain route health; final login curl
+  smoke test was blocked by this machine's connection path to
+  `pdf-audit.bobochang.cn:443`, not by an application error.
 
 ### Git Commits
 
@@ -29,7 +38,13 @@ Implemented PaddleOCR async cloud upload/object storage path, verified tests/lin
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] `npm run test`
+- [OK] `npm run lint`
+- [OK] `npm run build`
+- [OK] `npm run cf:build`
+- [OK] `env -u CLOUDFLARE_API_TOKEN npm run cf:deploy`
+- [OK] Remote D1 verification: `jobs=0`, `quota_ledger=0`, `sessions=0`,
+  `user_quotas=1`, `users=1`
 
 ### Status
 
@@ -160,6 +175,40 @@ Replaced generic Trellis template specs with project-specific Next.js/OpenNext C
 | Hash | Message |
 |------|---------|
 | `ac7f504` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 6: Production reset and username login
+
+**Date**: 2026-05-24
+**Task**: Production reset and username login
+**Branch**: `codex/cloud-r2-upload-quota-ui`
+
+### Summary
+
+Implemented username/account login, deployed the Cloudflare Worker, reset production D1/R2 business data, created the fresh bobochang admin account, and captured schema/security specs.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1d30d91` | (see git log) |
+| `0c7483f` | (see git log) |
 
 ### Testing
 
