@@ -1,0 +1,6 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Quality check entrypoint for frontend work."}
+{"file":".trellis/spec/frontend/components.md","reason":"Verify dialog accessibility, UI primitive use, and dense audit-console layout."}
+{"file":".trellis/spec/frontend/quality.md","reason":"Required frontend checks and UI quality rules."}
+{"file":".trellis/spec/frontend/authentication.md","reason":"Verify admin-only visibility and unchanged auth/session contract."}
+{"file":".trellis/spec/shared/code-quality.md","reason":"Required project checks and no-secret/no-local-service rules."}
+{"file":".trellis/spec/shared/typescript.md","reason":"Verify type imports, nullability, and no type-safety bypasses."}

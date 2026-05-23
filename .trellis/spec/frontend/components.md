@@ -50,9 +50,9 @@ The first screen is the usable audit console, not a landing page.
 
 Current layout:
 
-- Left sidebar: account/quota, upload controls, pipeline, admin panel.
+- Left sidebar: account/quota, upload controls, pipeline.
 - Main area: headline, history button, audit overview, result table.
-- Dialogs: history browser and evidence details.
+- Dialogs: history browser, evidence details, and admin user management.
 
 Keep operational UIs dense and scannable:
 
@@ -102,9 +102,13 @@ function ReadableTextBlock({ text }: { text: string }) {
 
 ## Admin Forms
 
-Admin user management must remain usable inside the sidebar.
+Admin user management belongs in an admin-only dialog opened from a compact
+command button, not in the always-visible sidebar. The sidebar should stay
+focused on the audit workflow: account/quota, upload controls, and pipeline
+state.
 
-- Stack quota fields vertically or in small grids so labels and inputs fit.
+- Use a wider responsive grid for quota fields so labels and inputs fit without
+  relying on sidebar scrolling.
 - Show quota boundary summary near quota inputs.
 - Keep refresh/save/enable/disable actions as explicit buttons with icons.
 - Disable self-disable.

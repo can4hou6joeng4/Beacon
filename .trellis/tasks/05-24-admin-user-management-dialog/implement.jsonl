@@ -1,0 +1,8 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend task index for Next.js audit console component changes."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Component placement, client component boundaries, and audit workbench layout rules."}
+{"file":".trellis/spec/frontend/components.md","reason":"Dialog, button, card, icon, accessibility, and dense operational UI conventions."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Typed props and API payload handling conventions for client components."}
+{"file":".trellis/spec/frontend/hooks.md","reason":"Local async state conventions and admin user loading behavior."}
+{"file":".trellis/spec/frontend/authentication.md","reason":"Admin-only user management and first-party cookie auth UI contract."}
+{"file":".trellis/spec/shared/code-quality.md","reason":"Shared quality rules, secrets handling, and required checks."}
+{"file":".trellis/spec/shared/typescript.md","reason":"TypeScript conventions for imports, nullability, and exported types."}

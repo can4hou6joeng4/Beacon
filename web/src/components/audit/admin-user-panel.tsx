@@ -188,38 +188,38 @@ export function AdminUserPanel({ currentUser }: { currentUser: PublicUser }) {
         </Alert>
       ) : null}
 
-      <form className="rounded-md border bg-background p-3 dark:bg-card" onSubmit={createUser}>
-        <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
+      <form className="rounded-md border bg-background p-4 dark:bg-card" onSubmit={createUser}>
+        <div className="mb-4 flex items-center gap-2 text-sm font-semibold">
           <UserPlus className="h-4 w-4 text-[#176b87]" />
           创建用户
         </div>
-        <div className="grid gap-3">
-          <div className="grid gap-2">
-            <Label htmlFor="admin-username">账号</Label>
-            <Input
-              id="admin-username"
-              value={form.username}
-              onChange={(event) => setForm({ ...form, username: event.target.value })}
-              autoComplete="username"
-              required
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="admin-name">名称</Label>
-            <Input id="admin-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="admin-password">初始密码</Label>
-            <Input
-              id="admin-password"
-              type="password"
-              value={form.password}
-              onChange={(event) => setForm({ ...form, password: event.target.value })}
-              minLength={10}
-              required
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor="admin-username">账号</Label>
+              <Input
+                id="admin-username"
+                value={form.username}
+                onChange={(event) => setForm({ ...form, username: event.target.value })}
+                autoComplete="username"
+                required
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="admin-name">名称</Label>
+              <Input id="admin-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="admin-password">初始密码</Label>
+              <Input
+                id="admin-password"
+                type="password"
+                value={form.password}
+                onChange={(event) => setForm({ ...form, password: event.target.value })}
+                minLength={10}
+                required
+              />
+            </div>
             <div className="grid gap-2">
               <Label htmlFor="admin-role">角色</Label>
               <select
@@ -233,15 +233,15 @@ export function AdminUserPanel({ currentUser }: { currentUser: PublicUser }) {
               </select>
             </div>
           </div>
-          <div className="grid gap-2 rounded-md border bg-muted/20 p-2">
-            <QuotaNumberField
-              id="admin-upload"
-              label="上传 MB"
-              value={form.uploadMb}
-              max={DEFAULT_UPLOAD_QUOTA_MB}
-              onChange={(value) => setForm({ ...form, uploadMb: value })}
-            />
-            <div className="grid grid-cols-2 gap-2">
+          <div className="grid gap-3 rounded-md border bg-muted/20 p-3">
+            <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
+              <QuotaNumberField
+                id="admin-upload"
+                label="上传 MB"
+                value={form.uploadMb}
+                max={DEFAULT_UPLOAD_QUOTA_MB}
+                onChange={(value) => setForm({ ...form, uploadMb: value })}
+              />
               <QuotaNumberField
                 id="admin-jobs"
                 label="OCR 任务"
@@ -256,11 +256,11 @@ export function AdminUserPanel({ currentUser }: { currentUser: PublicUser }) {
                 onChange={(value) => setForm({ ...form, ocrPages: value })}
               />
             </div>
+            <Button type="submit" className="bg-[#176b87] hover:bg-[#145d75]" disabled={isCreating}>
+              <UserPlus className="h-4 w-4" />
+              {isCreating ? "创建中" : "创建"}
+            </Button>
           </div>
-          <Button type="submit" className="bg-[#176b87] hover:bg-[#145d75]" disabled={isCreating}>
-            <UserPlus className="h-4 w-4" />
-            {isCreating ? "创建中" : "创建"}
-          </Button>
         </div>
       </form>
 
@@ -271,73 +271,72 @@ export function AdminUserPanel({ currentUser }: { currentUser: PublicUser }) {
           const edit = edits[user.id] ?? userToEdit(user)
           const isSelf = user.id === currentUser.id
           return (
-            <section key={user.id} className="rounded-md border bg-background p-3 dark:bg-card">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1 space-y-2">
+            <section key={user.id} className="rounded-md border bg-background p-4 dark:bg-card">
+              <div className="grid gap-4 lg:grid-cols-[minmax(240px,1fr)_minmax(320px,1.1fr)_auto] lg:items-start">
+                <div className="min-w-0 space-y-2">
                   <Input value={edit.name} onChange={(event) => updateEdit(user.id, { name: event.target.value })} />
-                  <div className="truncate text-xs text-muted-foreground">{user.username}</div>
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span className="truncate">{user.username}</span>
+                    <Badge variant={user.status === "active" ? "secondary" : "destructive"} className="shrink-0">
+                      {user.status === "active" ? "active" : "disabled"}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <select
+                      className="h-8 rounded-md border bg-background px-2 text-xs"
+                      value={edit.role}
+                      onChange={(event) => updateEdit(user.id, { role: event.target.value === "admin" ? "admin" : "user" })}
+                    >
+                      <option value="user">用户</option>
+                      <option value="admin">管理员</option>
+                    </select>
+                    <select
+                      className="h-8 rounded-md border bg-background px-2 text-xs"
+                      value={edit.status}
+                      disabled={isSelf}
+                      onChange={(event) => updateEdit(user.id, { status: event.target.value === "disabled" ? "disabled" : "active" })}
+                    >
+                      <option value="active">启用</option>
+                      <option value="disabled">禁用</option>
+                    </select>
+                  </div>
                 </div>
-                <Badge variant={user.status === "active" ? "secondary" : "destructive"} className="shrink-0">
-                  {user.status === "active" ? "active" : "disabled"}
-                </Badge>
-              </div>
-
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <select
-                  className="h-8 rounded-md border bg-background px-2 text-xs"
-                  value={edit.role}
-                  onChange={(event) => updateEdit(user.id, { role: event.target.value === "admin" ? "admin" : "user" })}
-                >
-                  <option value="user">用户</option>
-                  <option value="admin">管理员</option>
-                </select>
-                <select
-                  className="h-8 rounded-md border bg-background px-2 text-xs"
-                  value={edit.status}
-                  disabled={isSelf}
-                  onChange={(event) => updateEdit(user.id, { status: event.target.value === "disabled" ? "disabled" : "active" })}
-                >
-                  <option value="active">启用</option>
-                  <option value="disabled">禁用</option>
-                </select>
-              </div>
-
-              <div className="mt-3 grid gap-2 rounded-md border bg-muted/20 p-2">
-                <QuotaNumberField
-                  label="上传 MB"
-                  value={edit.uploadMb}
-                  max={DEFAULT_UPLOAD_QUOTA_MB}
-                  onChange={(value) => updateEdit(user.id, { uploadMb: value })}
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <QuotaNumberField label="OCR 任务" value={edit.ocrJobs} onChange={(value) => updateEdit(user.id, { ocrJobs: value })} />
-                  <QuotaNumberField
-                    label="OCR 页"
-                    value={edit.ocrPages}
-                    max={PADDLEOCR_DAILY_PDF_PAGE_LIMIT}
-                    onChange={(value) => updateEdit(user.id, { ocrPages: value })}
-                  />
+                <div className="grid gap-2 rounded-md border bg-muted/20 p-3">
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <QuotaNumberField
+                      label="上传 MB"
+                      value={edit.uploadMb}
+                      max={DEFAULT_UPLOAD_QUOTA_MB}
+                      onChange={(value) => updateEdit(user.id, { uploadMb: value })}
+                    />
+                    <QuotaNumberField label="OCR 任务" value={edit.ocrJobs} onChange={(value) => updateEdit(user.id, { ocrJobs: value })} />
+                    <QuotaNumberField
+                      label="OCR 页"
+                      value={edit.ocrPages}
+                      max={PADDLEOCR_DAILY_PDF_PAGE_LIMIT}
+                      onChange={(value) => updateEdit(user.id, { ocrPages: value })}
+                    />
+                  </div>
+                  <div className="rounded bg-background px-2 py-1.5 text-xs text-muted-foreground dark:bg-muted/20">
+                    已用 {formatBytes(user.quota.usage.uploadBytes)} · {user.quota.usage.ocrJobs} job · {user.quota.usage.ocrPages} 页
+                  </div>
                 </div>
-                <div className="rounded bg-background px-2 py-1.5 text-xs text-muted-foreground dark:bg-muted/20">
-                  已用 {formatBytes(user.quota.usage.uploadBytes)} · {user.quota.usage.ocrJobs} job · {user.quota.usage.ocrPages} 页
+                <div className="grid grid-cols-2 gap-2 lg:w-32 lg:grid-cols-1">
+                  <Button type="button" size="sm" variant="outline" disabled={busyUserId === user.id} onClick={() => updateUser(user)}>
+                    <Save className="h-4 w-4" />
+                    保存
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={edit.status === "active" ? "destructive" : "outline"}
+                    disabled={busyUserId === user.id || isSelf}
+                    onClick={() => updateUser(user, { status: edit.status === "active" ? "disabled" : "active" })}
+                  >
+                    {edit.status === "active" ? <XCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+                    {edit.status === "active" ? "禁用" : "启用"}
+                  </Button>
                 </div>
-              </div>
-
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <Button type="button" size="sm" variant="outline" disabled={busyUserId === user.id} onClick={() => updateUser(user)}>
-                  <Save className="h-4 w-4" />
-                  保存
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={edit.status === "active" ? "destructive" : "outline"}
-                  disabled={busyUserId === user.id || isSelf}
-                  onClick={() => updateUser(user, { status: edit.status === "active" ? "disabled" : "active" })}
-                >
-                  {edit.status === "active" ? <XCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-                  {edit.status === "active" ? "禁用" : "启用"}
-                </Button>
               </div>
             </section>
           )

@@ -13,7 +13,7 @@ import {
   User,
 } from "lucide-react"
 import { FormEvent, useMemo, useRef, useState } from "react"
-import { AdminUserPanel } from "@/components/audit/admin-user-panel"
+import { AdminUserDialog } from "@/components/audit/admin-user-dialog"
 import { HistoryPanel } from "@/components/audit/history-panel"
 import { ProgressSteps } from "@/components/audit/progress-steps"
 import { ResultDistributionChart } from "@/components/audit/result-distribution-chart"
@@ -154,7 +154,6 @@ export function AuditCommandCenter({
   const [historyOpen, setHistoryOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(!currentJob)
   const [overviewOpen, setOverviewOpen] = useState(false)
-  const [adminOpen, setAdminOpen] = useState(false)
   const [fileName, setFileName] = useState("")
   const [cutoff, setCutoff] = useState("2026-05-07")
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -427,21 +426,6 @@ export function AuditCommandCenter({
             </CardContent>
           </Card>
 
-          {currentUser.role === "admin" ? (
-            <Card className="mt-5">
-              <CardHeader>
-                <div className="flex items-center justify-between gap-3">
-                  <CardTitle className="text-sm">管理员</CardTitle>
-                  <CollapseButton open={adminOpen} onClick={() => setAdminOpen((open) => !open)} />
-                </div>
-              </CardHeader>
-              {adminOpen ? (
-                <CardContent>
-                  <AdminUserPanel currentUser={currentUser} />
-                </CardContent>
-              ) : null}
-            </Card>
-          ) : null}
         </aside>
 
         <section className="min-w-0 p-5">
@@ -456,6 +440,7 @@ export function AuditCommandCenter({
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {currentUser.role === "admin" ? <AdminUserDialog currentUser={currentUser} /> : null}
               <ThemeToggle />
               <Button variant="outline" className="h-9" onClick={() => setHistoryOpen(true)}>
                 <Archive className="h-4 w-4" />
