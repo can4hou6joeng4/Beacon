@@ -12,6 +12,8 @@ Serverless environments have unique characteristics that break traditional conne
 - **Cold starts**: New instances have no cached connections
 - **No persistent state**: Module-level caches can become stale zombies
 - **HTTP-based backends**: Many databases (Turso, Neon, PlanetScale) use HTTP, not TCP
+- **Binding-based storage**: this project uses D1/R2 bindings through OpenNext
+  helpers rather than a long-lived database client.
 
 **Most connection bugs come from "didn't think about serverless lifecycle"**.
 
@@ -102,6 +104,21 @@ export function getDb(env: Env) {
 ---
 
 ## Solutions by Database Type
+
+### Current Project: D1 Binding
+
+Use `getCloudflareD1Binding()` and the existing DB driver factory functions.
+D1 is exposed as a Cloudflare binding, so do not create or cache external
+database clients for production.
+
+Relevant files:
+
+- `web/src/lib/cloudflare-env.ts`
+- `web/src/lib/audit-db-d1.ts`
+- `web/src/lib/auth-db-d1.ts`
+
+If tests need local state, use the SQLite fallback path intentionally; do not let
+that fallback become production behavior.
 
 ### HTTP-Based Databases (Turso, Neon HTTP, PlanetScale)
 

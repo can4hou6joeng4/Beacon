@@ -1,214 +1,76 @@
 # Timestamp Specification
 
-> **Rule**: All timestamps use **Unix milliseconds (integer)** throughout the entire stack.
+> Current project rule: persisted and API timestamps are ISO 8601 strings unless
+> a type explicitly says the value is a number.
 
 ---
 
-## Full-Stack Timestamp Flow
+## Current Contract
 
-```
-[Edge Database]
-    | INTEGER (Unix milliseconds)
-    v
-[Drizzle ORM]
-    | mode: 'timestamp_ms' -> Date object
-    v
-[Application Logic]
-    | Date.getTime() -> number
-    v
-[API Response / Storage]
-    | number (Unix milliseconds)
-```
+The production app uses D1 plus local SQLite fallback drivers, not Drizzle. The
+current domain types expose timestamps as strings:
 
----
+- `AuditHistoryJob.createdAt`
+- `AuditHistoryJob.updatedAt`
+- `AuditHistoryJob.completedAt`
+- auth user/session timestamps
+- quota ledger timestamps
+- PaddleOCR provider `startTime` / `endTime` when present
 
-## Layer-by-Layer Specification
+Use ISO strings such as:
 
-### 1. Database Schema
-
-#### SQLite / Turso (default for this stack)
-
-```typescript
-// Use mode: 'timestamp_ms' for Drizzle to handle Date conversion
-createdAt: integer("createdAt", { mode: "timestamp_ms" })
-  .notNull()
-  .default(sql`(unixepoch() * 1000)`),
-
-updatedAt: integer("updatedAt", { mode: "timestamp_ms" })
-  .notNull()
-  .default(sql`(unixepoch() * 1000)`),
+```ts
+const createdAt = new Date().toISOString()
 ```
 
-**Key points**:
+## Database Boundary
 
-- Store as INTEGER in SQLite/Turso (milliseconds since epoch)
-- `mode: 'timestamp_ms'` makes Drizzle return `Date` objects when reading
-- Default value uses `unixepoch() * 1000` SQL expression to generate current time in milliseconds
-- `unixepoch()` is a SQLite function that returns seconds since epoch; multiply by 1000 for milliseconds
+Drivers should normalize timestamps before returning domain objects:
 
-#### PostgreSQL alternative
+- D1 driver: `web/src/lib/audit-db-d1.ts`, `web/src/lib/auth-db-d1.ts`
+- SQLite fallback: `web/src/lib/audit-db-sqlite.ts`,
+  `web/src/lib/auth-db-sqlite.ts`
 
-If using PostgreSQL instead of SQLite/Turso, use `timestamp` columns with Drizzle:
+Keep conversion inside the driver/service layer. UI components should receive
+typed strings and format them for display.
 
-```typescript
-import { timestamp } from "drizzle-orm/pg-core";
+## API Boundary
 
-createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
-  .notNull()
-  .defaultNow(),
+API route responses should preserve the typed shape from `web/src/lib/*-types.ts`.
+Do not convert job/user timestamps to Unix seconds or milliseconds in route
+handlers unless the response type is changed in the same task.
 
-updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
-  .notNull()
-  .defaultNow(),
+Example:
+
+```ts
+return NextResponse.json({ jobs })
 ```
 
-With PostgreSQL, Drizzle returns `Date` objects natively. The application logic layer (`.getTime()`) remains the same regardless of database engine.
+## Numeric Time Values
 
-### 2. Application Logic
+Numeric time values are still appropriate for durations, limits, and progress:
 
-```typescript
-// date-utils.ts
+- `SESSION_TTL_MS`
+- PaddleOCR polling interval milliseconds
+- upload/download URL expiry seconds
+- quota byte counts
 
-/** Current time in milliseconds */
-export function nowMillis(): number {
-  return Date.now();
-}
+Name numeric values with units (`Ms`, `Seconds`, `Bytes`) where possible.
 
-/** Convert Date to Unix milliseconds */
-export function toUnixMillis(date: Date): number {
-  return date.getTime();
-}
+## UI Formatting
 
-/** Convert Unix milliseconds to Date */
-export function fromUnixMillis(millis: number): Date {
-  return new Date(millis);
-}
+Format timestamps at the display edge. Keep raw domain values intact for sorting,
+comparison, and API round-trips.
+
+```ts
+const label = new Date(job.createdAt).toLocaleString("zh-CN")
 ```
 
-**Note**: `Date.now()` works correctly in Cloudflare Workers environment.
+## Do Not Use
 
-### 3. Type Schemas
-
-```typescript
-// Zod schemas for timestamps
-export const itemSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  // Use z.number() for timestamps
-  createdAt: z.number(), // Unix milliseconds
-  updatedAt: z.number(), // Unix milliseconds
-});
-
-// Nullable timestamps
-export const scheduleSchema = z.object({
-  scheduledAt: z.number().nullable(), // Unix milliseconds or null
-  createdAt: z.number(),
-});
-```
-
-### 4. Response Formatting
-
-```typescript
-// In procedure handlers
-
-// CORRECT - Use .getTime()
-return {
-  success: true,
-  item: {
-    id: result.id,
-    name: result.name,
-    createdAt: result.createdAt.getTime(), // number
-    updatedAt: result.updatedAt.getTime(), // number
-  },
-};
-
-// WRONG - Never use .toISOString() in data responses
-return {
-  item: {
-    createdAt: result.createdAt.toISOString(), // string - FORBIDDEN
-  },
-};
-```
-
----
-
-## Prohibited Patterns
-
-### Using toISOString() in Data
-
-```typescript
-// FORBIDDEN
-createdAt: item.createdAt.toISOString();
-```
-
-### Using z.string().datetime() in Schemas
-
-```typescript
-// FORBIDDEN
-createdAt: z.string().datetime();
-```
-
-### Mixing Seconds and Milliseconds
-
-```typescript
-// FORBIDDEN - inconsistent units
-{
-  createdAt: Math.floor(Date.now() / 1000),  // seconds
-  updatedAt: Date.now(),                      // milliseconds
-}
-```
-
----
-
-## Exceptions
-
-These scenarios may use non-numeric formats:
-
-| Scenario      | Format           | Reason          |
-| ------------- | ---------------- | --------------- |
-| Log output    | ISO string       | Human readable  |
-| Display in UI | Formatted string | User experience |
-| Debug output  | ISO string       | Debugging       |
-
----
-
-## Checklist for New Features
-
-When adding timestamps:
-
-- [ ] Schema uses `z.number()` for timestamps
-- [ ] Database uses `{ mode: 'timestamp_ms' }`
-- [ ] Response uses `.getTime()` not `.toISOString()`
-- [ ] SQL default uses `(unixepoch() * 1000)` for SQLite/Turso or `defaultNow()` for PostgreSQL
-
----
-
-## Why Milliseconds?
-
-1. **JavaScript native** - `Date.now()` returns milliseconds
-2. **No conversion needed** - `new Date(millis)` works directly
-3. **Precision** - Sub-second accuracy when needed
-4. **Consistency** - Same format everywhere
-
-### Common Bug Scenario (with seconds)
-
-```
-1. Client stores timestamp in seconds: 1734019200
-2. Code calls new Date(1734019200)
-3. Result: 1970-01-21T01:40:19.200Z (wrong year!)
-4. Application logic fails
-```
-
-Using milliseconds prevents this class of bugs.
-
----
-
-## Summary
-
-| Layer    | Format     | Method                 |
-| -------- | ---------- | ---------------------- |
-| Database | INTEGER    | Store as milliseconds  |
-| Drizzle  | Date       | `mode: 'timestamp_ms'` |
-| Logic    | number     | `Date.getTime()`       |
-| Schema   | z.number() | Unix milliseconds      |
-| Display  | string     | Format for UI only     |
+- Do not add Drizzle `timestamp_ms` examples for this project.
+- Do not mix Unix seconds with ISO strings in API payloads.
+- Do not assume every numeric field is a timestamp; quotas and sizes are numeric
+  too.
+- Do not make PaddleOCR provider timestamps authoritative for local job
+  lifecycle unless explicitly mapped by the service layer.

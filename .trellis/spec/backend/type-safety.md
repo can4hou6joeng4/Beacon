@@ -1,183 +1,104 @@
-# Type Safety Guidelines
+# Backend Type Safety Guidelines
 
-> Zod schemas, type patterns, and Hono header types.
-
----
-
-## Timestamp Format in API Responses
-
-**Rule**: All timestamps in API responses should use a consistent format. Common choices:
-
-- Unix milliseconds (number): `1766046445195`
-- ISO strings: `"2025-12-18T08:27:25.195Z"`
-
-Choose one format and stick to it across your API.
-
-```typescript
-// Example: Using Unix milliseconds
-return {
-  success: true,
-  entity: {
-    id: result.id,
-    createdAt: result.createdAt.getTime(), // -> 1766046445195
-    updatedAt: result.updatedAt.getTime(),
-  },
-};
-
-// Example: Using ISO strings
-return {
-  entity: {
-    createdAt: result.createdAt.toISOString(), // -> "2025-12-18T08:27:25.195Z"
-  },
-};
-```
-
-**Why consistent format matters**:
-
-- Clients can reliably parse timestamps
-- Simplifies frontend date handling
-- Matches API contract schema
+> Type patterns for Next.js API routes, D1/SQLite drivers, R2, and PaddleOCR.
 
 ---
 
-## No Non-Null Assertions
+## Project Types
 
-```typescript
-// Good - use local variable
-const user = await getUser(id);
-if (!user) {
-  throw new Error("User not found");
-}
-const userName = user.name; // Safe access
+Keep reusable domain types in `web/src/lib/`:
 
-// Bad - non-null assertion
-const userName = user!.name;
-```
+| Type area | File |
+| --- | --- |
+| Audit jobs/results | `web/src/lib/audit-types.ts` |
+| Auth users/sessions/quotas | `web/src/lib/auth-types.ts` |
+| PaddleOCR provider snapshots | `web/src/lib/paddleocr.ts` |
+| Object store config and payloads | `web/src/lib/cloud-object-store.ts` |
+| D1-like binding interfaces | `web/src/lib/cloudflare-env.ts` |
 
----
+Route-local request/response helpers can stay in route files when they are not
+reused.
 
-## Zod Schema
+## API Handler Signatures
 
-```typescript
-// All inputs and outputs need Zod schemas
-const inputSchema = z.object({
-  id: z.string(),
-});
+Use standard Next.js route handlers:
 
-const outputSchema = z.object({
-  success: z.boolean(),
-  data: z.object({...}),
-});
-```
+```ts
+export const runtime = "nodejs"
 
-### Zod v4 Notes
-
-If your project uses **Zod v4**, be aware of these API differences from v3:
-
-**1. `z.record()` requires two arguments:**
-
-```typescript
-// Zod v4 - correct
-z.record(z.string(), z.unknown()); // key schema + value schema
-
-// Zod v3 style - will cause TypeScript error
-z.record(z.unknown()); // missing key schema
-```
-
-**2. Error property renamed from `errors` to `issues`:**
-
-```typescript
-const result = schema.safeParse(data);
-
-if (!result.success) {
-  // Zod v4 - correct
-  console.log(result.error.issues);
-
-  // Zod v3 style - property doesn't exist
-  console.log(result.error.errors);
-}
-```
-
-**3. Logging Zod errors:**
-
-```typescript
-// Recommended pattern
-if (!parseResult.success) {
-  logger.warn("validation_failed", {
-    errors: parseResult.error.issues, // Use .issues not .errors
-  });
-  return c.json({ error: "invalid_request" }, 400);
-}
-```
-
----
-
-## Hono Header Types
-
-`c.req.header()` returns `string | undefined`, but some functions expect `string | null`:
-
-```typescript
-// Convert undefined to null when needed
-const authHeader = c.req.header("Authorization") ?? null;
-parseBasicAuth(authHeader); // Function expects string | null
-
-// May cause TypeScript error
-parseBasicAuth(c.req.header("Authorization")); // Type 'undefined' not assignable to 'null'
-```
-
-**Common pattern for optional headers:**
-
-```typescript
-// Check before use
-const auth = c.req.header("Authorization");
-if (auth?.startsWith("Bearer ")) {
-  const token = auth.slice(7);
+export async function POST(request: Request) {
   // ...
 }
 ```
 
----
+For dynamic segments, await `params` in the current Next.js convention used by
+the codebase:
 
-## Type Assertions for Enum Columns
-
-Drizzle returns `text` columns as `string` type, but API contracts often use stricter literal union types. Use type assertions when converting DB results to API responses.
-
-**Problem:**
-
-```typescript
-// DB layer (Drizzle schema)
-role: text("role").notNull(); // TypeScript infers as string
-
-// API layer (contract types)
-export type MemberRole = "owner" | "admin" | "member";
-```
-
-**Solution:**
-
-```typescript
-import { type MemberRole } from "./types";
-
-// In conversion functions
-function toApiResponse(member: DbMember) {
-  return {
-    id: member.userId,
-    role: member.role as MemberRole, // Type assertion
-    // ...
-  };
+```ts
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params
 }
 ```
 
-**Best practice:** Centralize type assertions in conversion utility functions, not scattered throughout handlers.
+## Runtime Validation
 
----
+This project currently uses explicit manual validation and type guards rather
+than Zod. Preserve that style unless a task explicitly adopts a schema library.
 
-## Best Practices Summary
+Examples:
 
-| Rule                          | Description                               |
-| ----------------------------- | ----------------------------------------- |
-| No non-null assertions (`!`)  | Use proper null checks                    |
-| All inputs validated with Zod | Never trust raw input                     |
-| All outputs typed             | Use explicit return types                 |
-| Consistent timestamp format   | Choose one format for all APIs            |
-| Type assertions in utilities  | Centralize DB-to-API conversions          |
-| Handle header types           | Convert `undefined` to `null` when needed |
+- `validateCreateUserInput` and `normalizeQuota` in `web/src/lib/auth.ts`
+- `validateCloudUploadInput` and `assertSafeObjectKey` in
+  `web/src/lib/cloud-object-store.ts`
+- `parsePaddleOcrJobSnapshot`, `readObject`, and `readNullableNumber` in
+  `web/src/lib/paddleocr.ts`
+
+Rules:
+
+- Validate request bodies before side effects.
+- Validate object keys before R2 reads/writes.
+- Validate provider payloads before storing or exposing derived values.
+- Convert provider `401` failures to an `AppError` with a useful stable code
+  where available.
+
+## D1 And SQLite Rows
+
+D1 returns plain records. SQLite fallback returns local records. Convert both
+through driver methods before returning domain types.
+
+- Keep row-to-domain conversion inside DB driver modules.
+- Use literal union checks for roles, statuses, quota resources, and audit
+  statuses.
+- Prefer `unknown` for untrusted database/provider data until narrowed.
+- Avoid scattering type assertions through route handlers.
+
+## No Non-Null Assertions
+
+Never use `!` to bypass nullability. Narrow first:
+
+```ts
+const job = await db.getJob(id)
+if (!job) {
+  return NextResponse.json({ error: "任务不存在" }, { status: 404 })
+}
+```
+
+## Timestamps
+
+The current API contract uses ISO timestamp strings for jobs, users, sessions,
+and quota ledger entries. Keep these as strings unless a specific type declares
+milliseconds as a number.
+
+Use `new Date(...).toISOString()` at persistence/service boundaries; do not mix
+Unix seconds into API payloads.
+
+## Do Not Use
+
+- Do not add Hono context types or `c.req.header()` patterns.
+- Do not add Drizzle row types for the current D1 drivers.
+- Do not require Zod schemas for every route until the dependency is adopted.
+- Do not expose Cloudflare binding objects or provider response payloads directly
+  to the frontend.

@@ -1,7 +1,7 @@
 # Common Issues and Solutions
 
-> Documented pitfalls from building and deploying production Cloudflare Workers applications.
-> These issues apply to any project running on the Workers runtime with Hono, Drizzle, and Vite.
+> Documented pitfalls from building and deploying this production Cloudflare
+> Workers/OpenNext application.
 
 ## Severity Levels
 
@@ -42,7 +42,7 @@
 ### Wrong URLs in Production (Warning)
 
 1. Are URLs using runtime environment variables? -> See [env-configuration.md](./env-configuration.md)
-2. Is `c.env` being passed to helper functions?
+2. Are OpenNext runtime helpers used for bindings instead of framework-template context objects?
 3. Are secrets configured in Cloudflare Dashboard?
 
 ### Data Integrity Issues (Warning)
@@ -61,16 +61,14 @@
 
 ## Technology Stack Coverage
 
-These pitfalls were discovered while building with:
+These project guidelines currently target:
 
-- **Cloudflare Workers** (Wrangler v4+)
-- **Hono** as web framework
-- **Turso** (libSQL) for database
-- **Drizzle ORM** for database abstraction
-- **Vite** with `@cloudflare/vite-plugin`
+- **Cloudflare Workers** through OpenNext
+- **Next.js 16 App Router**
+- **Cloudflare D1** plus local SQLite fallback
+- **Cloudflare R2**
+- **PaddleOCR async API**
 - **TypeScript** throughout
-
-Most issues apply to similar stacks (e.g., itty-router, D1, Prisma, etc.).
 
 ---
 

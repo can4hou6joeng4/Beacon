@@ -1,432 +1,186 @@
 # API Module Organization
 
-> Hono-based API module layout for Cloudflare Workers.
+> Project-specific backend API layout for the `web/` Next.js 16 App Router app
+> deployed through OpenNext to Cloudflare Workers.
 
 ---
 
-## Overview
+## Production Stack
 
-> **A universal backend API module structure with TypeScript + Zod + strict type safety**
->
-> This pattern ensures consistency, maintainability, and type safety across your API codebase.
+This project does **not** use Hono routers or a standalone Worker entrypoint for
+the production app. API endpoints are Next.js App Router route handlers under
+`web/src/app/api/**/route.ts`. OpenNext compiles those route handlers into the
+Cloudflare Worker configured by `web/wrangler.jsonc`.
 
-### Core Principles
+The production API surface coordinates:
 
-1. **Domain-Driven Structure** - Organize by business domain (e.g., `users`, `products`, `orders`)
-2. **Type Safety First** - Use Zod schemas for all inputs/outputs
-3. **Single Source of Truth** - Types defined once in `types.ts`
-4. **Code Reuse** - Extract common logic to `lib/`
-5. **Clear Separation** - Each file has a specific responsibility
+- first-party account auth and admin-only user creation,
+- append-only quota ledger accounting,
+- Cloudflare D1 history/auth storage,
+- Cloudflare R2 PDF/artifact object storage,
+- PaddleOCR async job submission and polling.
 
-### Benefits
-
-- **Type Safety** - Catch errors at compile time
-- **Consistency** - Same structure across all modules
-- **Maintainability** - Easy to locate and modify code
-- **Scalability** - Add new features without chaos
-- **Onboarding** - New developers understand structure quickly
+Legacy root-level Python/Swift files are historical/local tooling references,
+not the production business runtime.
 
 ## Directory Structure
 
+```text
+web/src/app/api/
+├── admin/users/route.ts
+├── admin/users/[id]/route.ts
+├── auth/bootstrap/route.ts
+├── auth/login/route.ts
+├── auth/logout/route.ts
+├── auth/me/route.ts
+├── audit/cloud-uploads/route.ts
+├── audit/cloud-uploads/[jobId]/file/route.ts
+├── audit/cloud-uploads/paddleocr/route.ts
+├── audit/history/route.ts
+└── audit/jobs/[id]/{status,result,download/[file]}/route.ts
+
+web/src/lib/
+├── api-response.ts          # shared JSON error helper
+├── app-error.ts             # structured AppError
+├── audit-*.ts               # audit DB, types, analysis, job status helpers
+├── auth-*.ts                # auth DB, crypto, types, service
+├── cloud-object-store.ts    # R2 binding + S3 compatibility helpers
+├── cloudflare-env.ts        # Cloudflare binding/runtime helpers
+├── paddleocr*.ts            # PaddleOCR config, client, runtime env
+└── quota*.ts                # quota ledger service + external limits
 ```
-src/routes/[domain]/
-├── types.ts              # Zod schemas + TypeScript types (REQUIRED)
-├── router.ts             # Route definitions (REQUIRED)
-├── procedures/           # Endpoint handlers (REQUIRED)
-│   ├── create.ts         # POST /create
-│   ├── update.ts         # PUT /update
-│   ├── list.ts           # GET /list
-│   ├── get.ts            # GET /:id
-│   └── delete.ts         # DELETE /:id
-├── lib/                  # Shared business logic (OPTIONAL)
-│   ├── [entity]-utils.ts # Entity-specific utilities
-│   ├── validators.ts     # Custom validators
-│   └── helpers.ts        # General helpers
-└── api/                  # API documentation (OPTIONAL)
-    ├── create.md
-    ├── update.md
-    └── list.md
-```
 
-**Example Domains:**
+## Route Handler Pattern
 
-| Domain       | Description          | Example Endpoints                           |
-| ------------ | -------------------- | ------------------------------------------- |
-| `workspaces` | Workspace management | `create`, `list`, `get`, `update`, `delete` |
-| `users`      | User management      | `create`, `list`, `get`, `update`, `delete` |
-| `posts`      | Post CRUD            | `create`, `list`, `get`, `update`, `delete` |
-| `auth`       | Authentication       | `login`, `logout`, `refresh`                |
-
-## types.ts - Schema & Type Definitions
-
-**Purpose**: Define ALL Zod schemas and TypeScript types for this module.
-
-**Rules**:
-
-1. Every API endpoint MUST have a Zod schema for input/output
-2. Use `z.infer<>` to derive TypeScript types from schemas
-3. Export both schemas and types
-4. Import shared enums from a central location
-
-**Template**:
+Route files should stay thin. They authenticate, parse input, call services in
+`web/src/lib/`, and return `NextResponse`.
 
 ```typescript
-// src/routes/workspaces/types.ts
-import { z } from "zod";
+import { NextResponse } from "next/server"
+import { jsonError } from "@/lib/api-response"
+import { requireAdmin } from "@/lib/auth"
+import { getAuthDb } from "@/lib/auth-db"
 
-// ============= Input Schemas =============
+export const runtime = "nodejs"
 
-export const createWorkspaceInputSchema = z.object({
-  name: z.string().min(1).max(100),
-  description: z.string().max(500).optional(),
-});
-
-export const updateWorkspaceInputSchema = z.object({
-  workspaceId: z.string().uuid(),
-  name: z.string().min(1).max(100).optional(),
-  description: z.string().max(500).optional(),
-});
-
-export const listWorkspacesInputSchema = z.object({
-  limit: z.number().int().min(1).max(100).default(20),
-  offset: z.number().int().min(0).default(0),
-});
-
-// ============= Output Schemas =============
-
-export const workspaceSchema = z.object({
-  id: z.string().uuid(),
-  name: z.string(),
-  description: z.string().optional(),
-  ownerId: z.string().uuid(),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-});
-
-export const createWorkspaceOutputSchema = z.object({
-  success: z.boolean(),
-  workspace: workspaceSchema.optional(),
-  reason: z.string().optional(),
-});
-
-export const listWorkspacesOutputSchema = z.object({
-  success: z.boolean(),
-  workspaces: z.array(workspaceSchema),
-  total: z.number().int(),
-  limit: z.number().int(),
-  offset: z.number().int(),
-});
-
-// ============= Type Exports =============
-
-export type CreateWorkspaceInput = z.infer<typeof createWorkspaceInputSchema>;
-export type CreateWorkspaceOutput = z.infer<typeof createWorkspaceOutputSchema>;
-export type UpdateWorkspaceInput = z.infer<typeof updateWorkspaceInputSchema>;
-export type ListWorkspacesInput = z.infer<typeof listWorkspacesInputSchema>;
-export type ListWorkspacesOutput = z.infer<typeof listWorkspacesOutputSchema>;
-export type Workspace = z.infer<typeof workspaceSchema>;
-```
-
-**Response Format Standards**:
-
-| Operation Type   | Required Fields                                                            | Optional Fields                                        |
-| ---------------- | -------------------------------------------------------------------------- | ------------------------------------------------------ |
-| Single operation | `success: boolean`                                                         | `reason?: string`, `error?: string`, entity data       |
-| Batch operation  | `success: boolean`, `total: number`, `processed: number`, `failed: number` | `errors?: Array<{id, error}>`                          |
-| List operation   | `success: boolean`, `items: Array<T>`, `total: number`                     | `limit?: number`, `offset?: number`, `cursor?: string` |
-
-## API and Frontend Route Namespace Separation
-
-**CRITICAL**: API routes (Hono) and frontend routes (React Router) share the same URL namespace. When Hono mounts a route at `/oauth/*`, it intercepts ALL requests to that path **before** React Router can handle them.
-
-**Problem Example:**
-
-```typescript
-// src/index.ts
-app.route("/oauth", oauthRouter);  // Hono handles /oauth/*
-
-// app/routes.ts (React Router)
-route("oauth/consent", "routes/oauth.consent.tsx"),  // Never reached!
-```
-
-When user navigates to `/oauth/consent`:
-
-1. Request hits Cloudflare Workers
-2. Hono sees `/oauth/*` -> routes to oauthRouter
-3. oauthRouter has no `/consent` handler -> 404
-4. React Router NEVER sees the request
-
-**Solution: Use Different Namespaces**
-
-| Route Type                     | Namespace                          | Example                              |
-| ------------------------------ | ---------------------------------- | ------------------------------------ |
-| API routes (Hono)              | `/api/*`, `/oauth/*`               | `/api/workspaces`, `/oauth/token`    |
-| Frontend routes (React Router) | `/auth/*`, `/app/*`, `/settings/*` | `/auth/login`, `/auth/oauth-consent` |
-
-**Correct Implementation:**
-
-```typescript
-// Hono API routes stay at /oauth
-app.route("/oauth", oauthRouter);  // /oauth/authorize, /oauth/token
-
-// Frontend consent page uses /auth namespace
-route("auth/oauth-consent", "routes/auth.oauth-consent.tsx"),  // Works!
-```
-
-**URL structure after fix:**
-
-```
-/oauth/authorize  ->  Hono API (redirects to consent page)
-/auth/oauth-consent  ->  React Router (renders consent UI)
-/oauth/token  ->  Hono API (token exchange)
-```
-
-**Rule of Thumb:**
-
-- If it returns JSON -> use `/api/*` or `/oauth/*` namespace (Hono)
-- If it renders HTML/UI -> use different namespace like `/auth/*` (React Router)
-
-## router.ts - Endpoint Routing
-
-**Purpose**: Define route structure and map endpoints to procedures.
-
-**Rules**:
-
-1. Keep routing logic minimal
-2. Import procedures from `procedures/` directory
-3. Apply middleware at route level if needed
-
-**Pattern: Hono Router**:
-
-```typescript
-// src/routes/workspaces/router.ts
-import { Hono } from "hono";
-import type { AppEnv } from "../../types";
-import { createWorkspace } from "./procedures/create";
-import { updateWorkspace } from "./procedures/update";
-import { listWorkspaces } from "./procedures/list";
-import { getWorkspace } from "./procedures/get";
-import { deleteWorkspace } from "./procedures/delete";
-import { requireSession } from "../../middleware/auth";
-
-const app = new Hono<AppEnv>();
-
-// Apply auth middleware to all routes
-app.use("*", requireSession());
-
-// Mount procedures
-app.post("/create", createWorkspace);
-app.put("/update", updateWorkspace);
-app.get("/list", listWorkspaces);
-app.get("/:id", getWorkspace);
-app.delete("/:id", deleteWorkspace);
-
-export default app;
-```
-
-## procedures/ - Endpoint Handlers
-
-**Purpose**: Implement the actual endpoint logic.
-
-**Rules**:
-
-1. One file per endpoint
-2. Import schemas from `types.ts`
-3. Validate inputs using Zod
-4. Return typed outputs
-5. Handle errors gracefully
-
-**Template**:
-
-```typescript
-// src/routes/workspaces/procedures/create.ts
-import type { MiddlewareHandler } from "hono";
-import type { AppEnv } from "../../../types";
-import type { CreateWorkspaceOutput } from "../types";
-import { createWorkspaceInputSchema } from "../types";
-import { workspaces, workspaceMembers } from "../../../db/schema";
-import { createDb } from "../../../db";
-import { HTTPException } from "hono/http-exception";
-
-export const createWorkspace: MiddlewareHandler<AppEnv> = async (c) => {
-  const logger = c.get("logger");
-  const user = c.get("user");
-
+export async function GET(request: Request) {
   try {
-    // 1. Validate input
-    const body = await c.req.json();
-    const validatedInput = createWorkspaceInputSchema.parse(body);
-
-    // 2. Business logic
-    const db = createDb(c.env);
-
-    // 3. Database operation
-    const [newWorkspace] = await db
-      .insert(workspaces)
-      .values({
-        name: validatedInput.name,
-        description: validatedInput.description,
-        ownerId: user!.id,
-      })
-      .returning();
-
-    // 4. Create owner membership
-    await db.insert(workspaceMembers).values({
-      workspaceId: newWorkspace.id,
-      userId: user!.id,
-      role: "owner",
-    });
-
-    // 5. Log success
-    logger.info("workspace_created", {
-      workspaceId: newWorkspace.id,
-      userId: user!.id,
-    });
-
-    // 6. Return success response
-    const output: CreateWorkspaceOutput = {
-      success: true,
-      workspace: newWorkspace,
-    };
-
-    return c.json(output);
+    await requireAdmin(request)
+    const db = await getAuthDb()
+    const users = await db.listUsers()
+    return NextResponse.json({ users })
   } catch (error) {
-    logger.error("failed_to_create_workspace", { error });
-
-    if (error instanceof z.ZodError) {
-      return c.json(
-        { success: false, reason: "Invalid input", error: error.message },
-        400,
-      );
-    }
-
-    throw new HTTPException(500, {
-      message: "Failed to create workspace",
-    });
+    return jsonError(error, "读取用户列表失败")
   }
-};
+}
 ```
 
-**Common Procedure Patterns**:
+Rules:
 
-| Pattern       | File Name     | HTTP Method | Purpose                                  |
-| ------------- | ------------- | ----------- | ---------------------------------------- |
-| Create        | `create.ts`   | POST        | Create new entity                        |
-| Get           | `get.ts`      | GET         | Retrieve single entity by ID             |
-| List          | `list.ts`     | GET         | Retrieve multiple entities with filters  |
-| Update        | `update.ts`   | PUT/PATCH   | Update existing entity                   |
-| Delete        | `delete.ts`   | DELETE      | Delete entity                            |
-| Custom Action | `[action].ts` | POST        | Custom operation (e.g., `send-email.ts`) |
+- Export `runtime = "nodejs"` on API routes. OpenNext/Cloudflare runs them in
+  Workers with `nodejs_compat`.
+- Use same-origin relative URLs from the client (`/api/...`).
+- Use `jsonError(error, fallbackMessage)` for route-level catches.
+- Keep provider tokens, R2 object bytes, and raw session tokens out of response
+  payloads.
+- Validate request body fields before creating jobs, reserving quota, or writing
+  objects.
 
-## lib/ - Shared Business Logic
+## Service Boundary
 
-**Purpose**: Extract reusable logic used by multiple procedures.
+Put reusable business logic in `web/src/lib/`, not in route files.
 
-**When to Use**:
+| Concern | Service file |
+| --- | --- |
+| login, bootstrap, require session/admin | `auth.ts` |
+| auth/user/quota persistence | `auth-db.ts`, `auth-db-d1.ts`, `auth-db-sqlite.ts` |
+| audit job persistence | `audit-db.ts`, `audit-db-d1.ts`, `audit-db-sqlite.ts` |
+| quota reservations/refunds/consumption | `quota.ts` |
+| external quota constants | `quota-limits.ts` |
+| R2/S3 object storage | `cloud-object-store.ts` |
+| PaddleOCR client and response parsing | `paddleocr.ts`, `paddleocr-runtime.ts` |
+| OCR result analysis | `audit-analyzer.ts`, `evidence-text.ts` |
 
-- Logic used in 2+ procedures
-- Complex business rules
-- Validation helpers
-- Data transformation utilities
-- Single-use code should stay in procedure
+Extract logic when:
 
-**Standard Naming Conventions**:
+- the behavior needs unit tests,
+- more than one route calls it,
+- it owns a cross-layer invariant such as quota refunds or ownership checks,
+- it touches Cloudflare bindings or third-party provider behavior.
 
-| Pattern       | Naming                         | Purpose                         | Example                                     |
-| ------------- | ------------------------------ | ------------------------------- | ------------------------------------------- |
-| Auth check    | `getXxxWithAuth(id, userId)`   | Fetch entity + verify ownership | `getWorkspaceWithAuth(workspaceId, userId)` |
-| Get or throw  | `getXxxOrThrow(id)`            | Fetch entity or throw error     | `getWorkspaceOrThrow(workspaceId)`          |
-| Composite     | `getXxxAndYyy(id)`             | Fetch multiple related entities | `getWorkspaceAndMembers(workspaceId)`       |
-| WHERE builder | `getXxxWhereCondition(params)` | Build query conditions          | `getWorkspacesWhereCondition(filters)`      |
-| Grouping      | `groupXxxByYyy(items)`         | Group array by key              | `groupMembersByWorkspace(members)`          |
+## API Response Contract
 
-**Example**:
+Success responses are plain JSON objects shaped for the UI:
 
 ```typescript
-// src/routes/workspaces/lib/workspace-utils.ts
-import { eq, and } from "drizzle-orm";
-import { workspaces, workspaceMembers } from "../../../db/schema";
-import type { Workspace } from "../types";
-import { HTTPException } from "hono/http-exception";
+return NextResponse.json({ job })
+return NextResponse.json({ user }, { status: 201 })
+return NextResponse.json({ result, job, distribution })
+```
 
-/**
- * Get workspace and verify requesting user has access
- * @throws HTTPException(404) if workspace not found
- * @throws HTTPException(403) if user unauthorized
- */
-export async function getWorkspaceWithAuth(
-  db: any,
-  workspaceId: string,
-  userId: string,
-): Promise<Workspace> {
-  const workspace = await db.query.workspaces.findFirst({
-    where: eq(workspaces.id, workspaceId),
-  });
+Errors use `jsonError`, which maps `AppError` status/code into JSON.
 
-  if (!workspace) {
-    throw new HTTPException(404, { message: "Workspace not found" });
-  }
+Important codes already used in the app:
 
-  // Check membership
-  const membership = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, workspaceId),
-      eq(workspaceMembers.userId, userId),
-    ),
-  });
+| Code | Meaning |
+| --- | --- |
+| `UNAUTHENTICATED` | no valid session cookie |
+| `ADMIN_REQUIRED` | non-admin called admin endpoint |
+| `QUOTA_EXHAUSTED` | account has no remaining quota |
+| `UPLOAD_QUOTA_LIMIT_EXCEEDED` | configured upload limit exceeds R2 baseline |
+| `OCR_PAGE_LIMIT_EXCEEDED` | configured OCR pages exceed PaddleOCR limit |
+| `PADDLEOCR_UNAUTHORIZED` | provider rejected `PADDLEOCR_API_TOKEN` |
 
-  if (!membership) {
-    throw new HTTPException(403, { message: "Access denied" });
-  }
+## Cross-Layer Route Flow
 
-  return workspace;
-}
+### Cloud Upload Flow
 
-/**
- * Get workspace or throw error
- * @throws HTTPException(404) if workspace not found
- */
-export async function getWorkspaceOrThrow(
-  db: any,
-  workspaceId: string,
-): Promise<Workspace> {
-  const workspace = await db.query.workspaces.findFirst({
-    where: eq(workspaces.id, workspaceId),
-  });
+1. UI calls `POST /api/audit/cloud-uploads`.
+2. Route verifies auth and upload quota, creates a job, reserves upload bytes.
+3. In `r2-binding` mode it returns
+   `/api/audit/cloud-uploads/{jobId}/file`.
+4. Browser `PUT`s the PDF to that same-origin route.
+5. Worker validates ownership, PDF type, and exact byte size, then writes to
+   `AUDIT_BUCKET`.
+6. UI calls `POST /api/audit/cloud-uploads/paddleocr`.
+7. Worker reads the private R2 object and submits multipart file mode to
+   PaddleOCR.
 
-  if (!workspace) {
-    throw new HTTPException(404, {
-      message: `Workspace not found: ${workspaceId}`,
-    });
-  }
+Never expose a public R2 object URL or a PaddleOCR token to the browser.
 
-  return workspace;
+### Status/Result Flow
+
+1. UI polls `GET /api/audit/jobs/{id}/status`.
+2. Route verifies ownership and provider job id.
+3. PaddleOCR status is normalized into `StageState`.
+4. When done, result JSONL is analyzed and stored.
+5. OCR page quota is consumed idempotently from the final provider page count.
+
+## Wrong vs Correct
+
+### Wrong
+
+```typescript
+// Fat route handler owns parsing, provider calls, database writes, and refunds.
+export async function POST(request: Request) {
+  const body = await request.json()
+  await fetch("https://paddleocr...", { body: JSON.stringify(body) })
+  // no ownership or quota refund boundary
 }
 ```
 
-**lib/ File Organization**:
+### Correct
 
+```typescript
+export async function POST(request: Request) {
+  try {
+    const context = await requireAuth(request)
+    const input = parseSubmitInput(await request.json())
+    await consumeOcrJobQuota({ context, jobId: input.jobId })
+    const providerJobId = await submitPrivateR2ObjectToPaddleOcr(input)
+    return NextResponse.json({ providerJobId })
+  } catch (error) {
+    return jsonError(error, "提交云端 OCR 任务失败")
+  }
+}
 ```
-lib/
-├── workspace-utils.ts    # Workspace-specific utilities
-├── validators.ts         # Custom Zod validators
-├── helpers.ts            # General helpers
-└── constants.ts          # Module constants
-```
-
-## Quick Start Checklist
-
-When creating a new module:
-
-- [ ] Create directory: `src/routes/[domain]/`
-- [ ] Create `types.ts` with all Zod schemas
-- [ ] Create `router.ts` to define routes
-- [ ] Create `procedures/` directory
-- [ ] Implement each endpoint in `procedures/[action].ts`
-- [ ] Extract shared logic to `lib/` if needed
-- [ ] Document endpoints in `api/` if needed
-- [ ] Mount router in `src/index.ts`
-
-## Reference
-
-For best practices, common patterns, and anti-patterns, see [api-patterns.md](./api-patterns.md).

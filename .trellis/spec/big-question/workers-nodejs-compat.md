@@ -1,155 +1,87 @@
 # Cloudflare Workers Node.js Compatibility
 
-> **Severity**: P0 - App fails to start
+> **Severity**: P0 - app fails to build, deploy, or run on Workers.
 
-## Problem
+---
 
-When integrating third-party libraries in a Cloudflare Workers project, the app fails with errors like:
+## Current Project Context
 
-```
-SyntaxError: Named export 'xxx' not found
-Failed to load url node:module
-Failed to load url node:crypto
-```
+This project deploys a Next.js 16 app to Cloudflare Workers through
+`@opennextjs/cloudflare`. `web/wrangler.jsonc` is the runtime configuration
+source.
 
-Development server crashes because the library depends on Node.js built-in modules that Workers doesn't support by default.
+The app intentionally uses a small amount of Node-compatible API surface:
 
-## Common Libraries Affected
+- `node:crypto` and `Buffer` in `web/src/lib/cloud-object-store.ts`
+- `Buffer` in `web/src/lib/auth-crypto.ts`
+- Next/OpenNext runtime internals
 
-- **Authentication**: Better Auth, Lucia Auth, Auth.js
-- **Database**: Drizzle ORM, Prisma (edge adapter)
-- **Utilities**: nanoid, uuid, bcrypt
-- **HTTP**: undici, got
-- Any library using `node:crypto`, `node:module`, `node:fs`, etc.
+Keep `nodejs_compat` enabled unless a task proves every dependency no longer
+needs it.
 
-## Initial Attempts (All Failed)
+## Compatibility Checklist
 
-### 1. Assume library works out of the box
+Before adding or upgrading a dependency:
 
-```typescript
-import { auth } from "better-auth";
-// Error: Failed to load url node:module
-```
-
-**Why it fails**: Many modern TypeScript libraries use Node.js built-in modules internally. Workers runtime doesn't provide these by default.
-
-### 2. Search for "Workers-compatible" alternatives
-
-**Why it fails**: Often unnecessary. Cloudflare provides compatibility layers for most use cases.
-
-### 3. Bundle with polyfills manually
-
-```typescript
-// vite.config.ts
-resolve: {
-  alias: {
-    'node:crypto': 'crypto-browserify'
-  }
-}
-```
-
-**Why it fails**: Incomplete coverage, maintenance burden, and often introduces new issues.
-
-## Root Cause
-
-Cloudflare Workers uses the V8 JavaScript engine directly, without Node.js APIs. By default, Node.js built-in modules (`node:*`) are unavailable.
-
-```
-Library code: import crypto from 'node:crypto'
-                    |
-Workers runtime: "What is node:crypto? Never heard of it."
-                    |
-              CRASH
-```
-
-## Solution
-
-### Step 1: Enable nodejs_compat Flag
-
-In `wrangler.toml` or `wrangler.jsonc`:
-
-```jsonc
-{
-  "compatibility_date": "2025-01-01",
-  "compatibility_flags": ["nodejs_compat"],
-}
-```
-
-Or in TOML format:
-
-```toml
-compatibility_date = "2025-01-01"
-compatibility_flags = ["nodejs_compat"]
-```
-
-### Step 2: Use Recent Compatibility Date
-
-The `compatibility_date` determines which Workers runtime features are available:
-
-```jsonc
-{
-  // Recommended: Use a recent date (within last 6 months)
-  "compatibility_date": "2025-01-01",
-}
-```
-
-### Step 3: Keep Tooling Updated
-
-When using `@cloudflare/vite-plugin`, ensure it stays in sync with `wrangler`:
+1. Check `web/package.json` and `.trellis/spec/shared/dependency-versions.md`.
+2. Confirm the package works with React 19, Next.js 16, and OpenNext Cloudflare.
+3. Search its docs/issues for Workers or Edge runtime compatibility.
+4. Check for runtime imports of unsupported APIs such as `node:fs`,
+   `node:child_process`, `node:net`, or native binaries.
+5. Run:
 
 ```bash
-pnpm update @cloudflare/vite-plugin wrangler --latest
+npm run test
+npm run lint
+npm run build
+npm run cf:build
 ```
 
-Version mismatches between these packages cause ESM/CJS compatibility issues.
+## Supported And Risky APIs
 
-## Why This Works
+| Usually acceptable with `nodejs_compat` | Avoid in Worker runtime |
+| --- | --- |
+| `node:crypto` | `node:fs` for production storage |
+| `node:buffer` / `Buffer` | `node:child_process` |
+| `node:util` | `node:net` / raw TCP clients |
+| Web Crypto | native Node addons |
+| Fetch/Web Streams | local filesystem databases in production |
 
-1. **`nodejs_compat`**: Tells the Workers runtime to provide polyfills for Node.js built-in modules. Most common APIs (`crypto`, `buffer`, `util`, etc.) are supported.
+Local/test-only dependencies such as `better-sqlite3` must not become production
+runtime dependencies.
 
-2. **Recent `compatibility_date`**: Ensures you get the latest polyfill implementations and bug fixes.
+## Common Failure Modes
 
-3. **Synced tooling versions**: The Vite plugin and Wrangler must agree on module resolution semantics.
+| Symptom | Likely cause |
+| --- | --- |
+| `Failed to load url node:*` | Missing compatibility flag or unsupported runtime import |
+| Build passes, `cf:build` fails | Package relies on Node-only runtime APIs |
+| Local tests pass, deployed route fails | Dependency or helper used local filesystem/process behavior |
+| Upload/R2 signing breaks | Crypto/Buffer compatibility changed |
 
-## Compatibility Checklist for Third-Party Libraries
+## Current Commands
 
-Before adding a new library:
-
-1. **Check documentation** for Workers/Edge compatibility notes
-2. **Search issues** for "cloudflare workers" or "edge runtime"
-3. **Test in dev** with `pnpm dev` before deploying
-4. **Review imports** - if it uses `node:*` modules, ensure `nodejs_compat` is enabled
-
-## Key Insight
-
-**Not all Node.js APIs are supported**, even with `nodejs_compat`:
-
-| Supported     | Not Supported        |
-| ------------- | -------------------- |
-| `node:crypto` | `node:fs`            |
-| `node:buffer` | `node:child_process` |
-| `node:util`   | `node:net`           |
-| `node:events` | `node:dns`           |
-| `node:stream` | `node:cluster`       |
-
-For filesystem operations, use Workers KV, R2, or Durable Objects instead.
-
-## Verification
-
-After enabling the flag, verify your app starts:
+Use npm, not pnpm:
 
 ```bash
-# Local development
-pnpm dev
-
-# Deploy preview
-wrangler deploy --dry-run
+cd web
+npm run test
+npm run lint
+npm run build
+npm run cf:build
 ```
 
-Check the console for any remaining `node:*` errors.
+Deploy with the authenticated Wrangler session on this machine:
 
-## References
+```bash
+env -u CLOUDFLARE_API_TOKEN npm run cf:deploy
+```
 
-- [Cloudflare Workers Node.js Compatibility](https://developers.cloudflare.com/workers/runtime-apis/nodejs/)
-- [Compatibility Flags Documentation](https://developers.cloudflare.com/workers/configuration/compatibility-dates/)
-- [Workers Runtime APIs](https://developers.cloudflare.com/workers/runtime-apis/)
+## Do Not Do
+
+- Do not add browser polyfills for Node modules unless there is no Workers-native
+  or OpenNext-compatible solution.
+- Do not move PDF/object storage to local filesystem paths.
+- Do not add native Node packages to API routes without verifying `cf:build`.
+- Do not switch build tooling to a Vite Worker plugin; this app uses Next.js and
+  OpenNext.

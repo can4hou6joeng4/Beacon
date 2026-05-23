@@ -1,258 +1,124 @@
-# TypeScript Best Practices
+# TypeScript Guidelines
 
-> TypeScript guidelines for Cloudflare Workers applications.
+> Shared TypeScript rules for the Next.js/OpenNext Cloudflare app.
 
 ---
 
-## Explicit Return Types
+## Explicit Exported Types
 
-Always use explicit return types for exported functions:
+Use explicit return types for exported library functions, especially when the
+function crosses a route/service/database boundary.
 
-```typescript
-// BAD - Implicit return type
-export function getUser(id: string) {
-  return db.query.users.findFirst({ where: eq(users.id, id) });
-}
-
-// GOOD - Explicit return type
-export function getUser(id: string): User | undefined {
-  return db.query.users.findFirst({ where: eq(users.id, id) });
-}
-
-// GOOD - Async with Promise
-export async function getUser(id: string): Promise<User | undefined> {
-  return db.query.users.findFirst({ where: eq(users.id, id) });
+```ts
+export async function getAuthContext(request: Request): Promise<AuthContext | null> {
+  // ...
 }
 ```
 
----
-
-## Use `type` for Object Types
-
-```typescript
-// Use type for most cases
-type User = {
-  id: string;
-  name: string;
-  email: string;
-};
-
-// Use interface when you expect extension
-interface Plugin {
-  name: string;
-  init(): void;
-}
-
-interface AdvancedPlugin extends Plugin {
-  cleanup(): void;
-}
-```
-
----
+Inline inference is acceptable for small local helpers inside a component or
+test when the type is obvious.
 
 ## Type Imports
 
-Always use `import type` for type-only imports:
+Use `import type` for type-only imports.
 
-```typescript
-// GOOD
-import type { User, Project } from "./types";
-import { createUser } from "./procedures";
-
-// Also acceptable
-import { type User, createUser } from "./types";
-
-// BAD - Mixed imports without type annotation
-import { User, createUser } from "./types";
+```ts
+import type { PublicUser } from "@/lib/auth-types"
+import { requireAuth } from "@/lib/auth"
 ```
 
----
+## Object Types
 
-## Zod Schema for Runtime Validation
+Use `type` for most object shapes and unions. Use `interface` only when
+declaration merging or extension is genuinely useful.
 
-Use Zod for all external data validation:
-
-```typescript
-import { z } from "zod";
-
-// Define schema
-const userInputSchema = z.object({
-  name: z.string().min(1).max(100),
-  email: z.string().email(),
-  age: z.number().int().min(0).optional(),
-});
-
-// Derive type from schema
-type UserInput = z.infer<typeof userInputSchema>;
-
-// Validate input
-const parseResult = userInputSchema.safeParse(rawInput);
-if (!parseResult.success) {
-  return { success: false, error: parseResult.error.issues[0].message };
+```ts
+type AuditPayload = {
+  jobId: string
+  error?: string
 }
-const validInput = parseResult.data;
 ```
 
----
+## Runtime Validation
+
+The current project uses manual validation and type guards, not a schema
+library. Follow existing helpers before adding dependencies:
+
+- `validateCloudUploadInput(...)`
+- `assertSafeObjectKey(...)`
+- `validateCreateUserInput(...)`
+- `parsePaddleOcrJobSnapshot(...)`
+- `readObject(...)`
+
+Pattern:
+
+```ts
+const payload = (await request.json().catch(() => null)) as {
+  jobId?: string
+} | null
+
+if (!payload?.jobId) {
+  return NextResponse.json({ error: "缺少任务 ID" }, { status: 400 })
+}
+```
+
+Do not require Zod for new code unless a task explicitly adopts it and updates
+the dependency/spec contract.
+
+## Unknown Over Any
+
+Use `unknown` for untrusted provider, database, and JSON values until narrowed.
+
+```ts
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+```
+
+Avoid `any` in source and tests.
 
 ## Discriminated Unions
 
-Use strict equality for type narrowing:
+Use literal unions for project state:
 
-```typescript
-type Result =
-  | { success: true; data: string }
-  | { success: false; error: string };
+- `AuditStatusValue`
+- `PaddleOcrState`
+- `UserRole`
+- `UserStatus`
+- `QuotaResource`
 
-const result: Result = doSomething();
+Use strict equality to narrow.
 
-// CORRECT: Use === true
-if (result.success === true) {
-  console.log(result.data); // TypeScript knows data exists
-} else {
-  console.log(result.error); // TypeScript knows error exists
-}
-
-// WRONG: Truthy check may not narrow properly
-if (result.success) {
-  console.log(result.data);
-} else {
-  console.log(result.error); // May cause type error
+```ts
+if (job.status === "complete") {
+  // ...
 }
 ```
 
----
+## Nullability
 
-## Type Guards
+Prefer explicit `T | null` when absence is part of the domain. Narrow before
+accessing optional values.
 
-Create type guards for runtime type checking:
+Never use non-null assertions.
 
-```typescript
-// Type guard function
-function isUser(value: unknown): value is User {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "id" in value &&
-    "email" in value &&
-    typeof (value as User).id === "string" &&
-    typeof (value as User).email === "string"
-  );
-}
+## Units In Names
 
-// Usage
-const data: unknown = JSON.parse(response);
-if (isUser(data)) {
-  console.log(data.email); // TypeScript knows it's a User
-}
+Include units in numeric names when the unit matters:
 
-// With Zod (simpler)
-const parseResult = userSchema.safeParse(data);
-if (parseResult.success) {
-  console.log(parseResult.data.email); // Type-safe
-}
-```
-
----
-
-## Generics
-
-Use generics for reusable type-safe functions:
-
-```typescript
-// Generic function
-function first<T>(items: T[]): T | undefined {
-  return items[0];
-}
-
-// Generic with constraints
-function getProperty<T, K extends keyof T>(obj: T, key: K): T[K] {
-  return obj[key];
-}
-
-// Generic type
-type Result<T> = { success: true; data: T } | { success: false; error: string };
-
-function createResult<T>(data: T): Result<T> {
-  return { success: true, data };
-}
-```
-
----
-
-## Utility Types
-
-Use built-in utility types:
-
-```typescript
-// Partial - all properties optional
-type PartialUser = Partial<User>;
-
-// Required - all properties required
-type RequiredUser = Required<User>;
-
-// Pick - select specific properties
-type UserName = Pick<User, "name" | "email">;
-
-// Omit - exclude specific properties
-type UserWithoutId = Omit<User, "id">;
-
-// Record - key-value mapping
-type UserMap = Record<string, User>;
-
-// ReturnType - extract function return type
-type CreateResult = ReturnType<typeof createUser>;
-```
-
----
-
-## Avoid Common Pitfalls
-
-### Don't use `any`
-
-```typescript
-// BAD
-function process(data: any) { ... }
-
-// GOOD
-function process(data: unknown) { ... }
-function process(data: ProcessInput) { ... }
-```
-
-### Don't use non-null assertion
-
-```typescript
-// BAD
-const name = user!.name;
-
-// GOOD
-if (user) {
-  const name = user.name;
-}
-```
-
-### Don't ignore TypeScript errors
-
-```typescript
-// BAD
-// @ts-ignore
-doSomething(invalidArg);
-
-// GOOD - Fix the type issue
-doSomething(validArg);
-```
-
----
+- `pollIntervalMs`
+- `uploadExpiresSeconds`
+- `downloadExpiresSeconds`
+- `uploadBytesLimit`
+- `ocrPagesLimit`
 
 ## Summary
 
-| Practice              | Reason                      |
-| --------------------- | --------------------------- |
-| Explicit return types | Documentation, catch errors |
-| `import type`         | Clear separation            |
-| Zod for validation    | Runtime type safety         |
-| `=== true` for unions | Proper narrowing            |
-| Type guards           | Runtime checks              |
-| Generics              | Reusability                 |
-| Utility types         | DRY types                   |
-| Avoid `any`           | Type safety                 |
+| Practice | Rule |
+| --- | --- |
+| Exported functions | Prefer explicit return types |
+| Untrusted JSON/provider data | Use `unknown` and narrow |
+| Validation | Manual guards matching existing code |
+| Type imports | Use `import type` |
+| Nullability | Narrow explicitly; no `!` |
+| Numeric units | Put units in names |

@@ -1,232 +1,81 @@
 # Code Quality Guidelines
 
-> Mandatory code quality rules for all Cloudflare Workers applications.
+> Shared code quality rules for the `web/` app and project docs.
 
 ---
 
-## No Non-Null Assertions
+## Required Checks
 
-**NEVER** use non-null assertions (`!`). They bypass TypeScript's null checking and lead to runtime errors.
-
-```typescript
-// FORBIDDEN
-const name = user!.name;
-const value = data!.items![0]!;
-
-// REQUIRED - Use explicit checks
-const user = getUser();
-if (!user) {
-  throw new Error("User not found");
-}
-const name = user.name;
-
-// REQUIRED - Use optional chaining with fallback
-const value = data?.items?.[0] ?? defaultValue;
-
-// REQUIRED - Use local variable after null check
-const project = getProject(id);
-if (!project) {
-  return { success: false, error: "Project not found" };
-}
-// Now project is narrowed to non-null
-const projectName = project.name;
-```
-
----
-
-## Avoid `any` Type
-
-```typescript
-// BAD
-function process(data: any) { ... }
-
-// GOOD - Use proper types
-function process(data: ProcessInput) { ... }
-
-// GOOD - Use unknown for truly unknown data
-function parseJSON(input: string): unknown {
-  return JSON.parse(input);
-}
-```
-
----
-
-## Lint and Type Check Before Commit
+For code changes, run from `web/`:
 
 ```bash
-# MUST pass before every commit
-pnpm lint
-pnpm typecheck
-
-# Or combined
-pnpm lint && pnpm typecheck
+npm run test
+npm run lint
+npm run build
+npm run cf:build
 ```
 
----
+For docs-only `.trellis/spec` changes:
+
+```bash
+git diff --check
+```
+
+Run deployment only when the task changes production behavior or configuration:
+
+```bash
+env -u CLOUDFLARE_API_TOKEN npm run cf:deploy
+```
+
+## Mandatory Rules
+
+- No `any`; use project types or `unknown` plus narrowing.
+- No non-null assertions.
+- No committed secrets, tokens, `.env`, `.dev.vars`, local DBs, uploaded PDFs,
+  OCR outputs, or provider artifacts.
+- No production dependency on local Python/Swift/macOS services.
+- Use same-origin API paths in the browser.
+- Keep Cloudflare D1/R2/PaddleOCR secrets server-only.
 
 ## Naming Conventions
 
-### Files and Directories
-
-| Type            | Convention                  | Example                     |
-| --------------- | --------------------------- | --------------------------- |
-| React Component | PascalCase                  | `UserProfile.tsx`           |
-| Hook            | camelCase with `use` prefix | `useProject.ts`             |
-| Utility         | kebab-case                  | `date-utils.ts`             |
-| Type file       | kebab-case or `types.ts`    | `types.ts`, `user-types.ts` |
-| Test file       | Same name + `.test`         | `date-utils.test.ts`        |
-| Directory       | kebab-case                  | `user-profile/`             |
-
-### Variables and Functions
-
-| Type           | Convention                                  | Example                            |
-| -------------- | ------------------------------------------- | ---------------------------------- |
-| Variable       | camelCase                                   | `userName`, `isActive`             |
-| Constant       | SCREAMING_SNAKE_CASE                        | `MAX_RETRY_COUNT`                  |
-| Function       | camelCase                                   | `getUserById`                      |
-| Class          | PascalCase                                  | `UserService`                      |
-| Type/Interface | PascalCase                                  | `UserInput`, `ProjectOutput`       |
-| Enum           | PascalCase (type), SCREAMING_SNAKE (values) | `enum Status { ACTIVE, INACTIVE }` |
-
-### Boolean Variables
-
-Use `is`, `has`, `should`, `can` prefixes:
-
-```typescript
-// GOOD
-const isLoading = true;
-const hasPermission = user.role === "admin";
-const shouldRefresh = Date.now() > expiresAt;
-const canEdit = isOwner || hasPermission;
-
-// BAD
-const loading = true;
-const permission = user.role === "admin";
-```
-
----
+| Thing | Convention | Example |
+| --- | --- | --- |
+| Next.js routes | App Router folders | `app/api/auth/me/route.ts` |
+| React components | PascalCase exports in kebab-case files | `audit-command-center.tsx` |
+| Utilities | kebab-case files | `cloud-object-store.ts` |
+| Type files | Existing domain names | `audit-types.ts`, `auth-types.ts` |
+| Tests | Co-located or lib-focused `.test.ts` | `paddleocr.test.ts` |
+| Constants | SCREAMING_SNAKE_CASE for true constants | `MAX_UPLOAD_QUOTA_BYTES` |
 
 ## Error Handling
 
-### Use Structured Errors
+- Use `AppError` for expected server failures.
+- Use `jsonError` in route `catch` blocks.
+- Use user-readable Chinese messages for API errors that the UI displays.
+- Do not return stack traces or raw provider payloads.
 
-```typescript
-// Define error types
-class AppError extends Error {
-  constructor(
-    message: string,
-    public code: string,
-    public statusCode: number = 500,
-  ) {
-    super(message);
-    this.name = "AppError";
-  }
-}
+## Testing
 
-// Specific error types
-class NotFoundError extends AppError {
-  constructor(resource: string, id: string) {
-    super(`${resource} not found: ${id}`, "NOT_FOUND", 404);
-  }
-}
+Add or update tests when changing:
 
-class ValidationError extends AppError {
-  constructor(message: string) {
-    super(message, "VALIDATION_ERROR", 400);
-  }
-}
-```
+- auth/password/session behavior
+- quota ledger math
+- upload validation or R2 object-key rules
+- PaddleOCR request/response parsing
+- date extraction and audit classification
+- evidence text cleanup
 
-### Error Response Format
+Prefer focused unit tests for pure helpers and route/service tests for auth,
+quota, storage, and provider orchestration.
 
-```typescript
-// Consistent error response
-interface ErrorResponse {
-  success: false;
-  error: string;
-  code?: string;
-}
+## Review Checklist
 
-// Example
-return {
-  success: false,
-  error: "Invalid input",
-  code: "VALIDATION_ERROR",
-};
-```
-
-### Never Swallow Errors
-
-```typescript
-// BAD - Swallowing error
-try {
-  await dangerousOperation();
-} catch (e) {
-  // Silent failure
-}
-
-// GOOD - Log and handle
-try {
-  await dangerousOperation();
-} catch (error) {
-  console.error("operation_failed", { error });
-  throw new AppError("Operation failed", "OPERATION_FAILED");
-}
-```
-
----
-
-## Testing Guidelines
-
-### Test File Location
-
-```
-src/
-├── utils/
-│   ├── date-utils.ts
-│   └── date-utils.test.ts    # Co-located test
-└── __tests__/                 # Integration tests
-    └── api.test.ts
-```
-
-### Test Naming
-
-```typescript
-describe("DateUtils", () => {
-  describe("formatDate", () => {
-    it("should format date in ISO format", () => { ... });
-    it("should handle null input", () => { ... });
-    it("should throw on invalid date", () => { ... });
-  });
-});
-```
-
-### Test Structure (AAA Pattern)
-
-```typescript
-it("should create a project", async () => {
-  // Arrange
-  const input = { name: "Test Project" };
-
-  // Act
-  const result = createProject(input);
-
-  // Assert
-  expect(result.success).toBe(true);
-  expect(result.project.name).toBe("Test Project");
-});
-```
-
----
-
-## Summary
-
-| Rule                    | Reason              |
-| ----------------------- | ------------------- |
-| No `!` assertions       | Runtime errors      |
-| No `any` type           | Type safety         |
-| Lint before commit      | Consistent code     |
-| Typecheck before commit | Catch type errors   |
-| Semantic naming         | Readability         |
-| Structured errors       | Consistent handling |
-| Never swallow errors    | Debuggability       |
+- [ ] Does the code follow the existing Next.js App Router layout?
+- [ ] Are Cloudflare bindings accessed through existing helpers?
+- [ ] Are secrets server-only?
+- [ ] Are quotas checked before expensive work?
+- [ ] Are D1/R2/PaddleOCR failures surfaced clearly?
+- [ ] Does UI text wrap/clamp long filenames, emails, quota values, and OCR
+      evidence?
+- [ ] Did the task update Trellis specs if it discovered a durable rule?

@@ -1,658 +1,104 @@
-# Storage & Caching
+# Storage Guidelines
 
-> Session caching with Cloudflare Cache API and R2 storage patterns.
-
----
-
-## Session Caching (Cloudflare Cache API)
-
-### Overview
-
-Use Cloudflare Workers Cache API to cache session data, reducing database queries for Bearer Token authentication.
-
-### Why Cache Sessions?
-
-| Scenario                        | Without Cache           | With Cache            |
-| ------------------------------- | ----------------------- | --------------------- |
-| Client making 100 API calls/min | 100 DB queries/min      | ~2 DB queries/min     |
-| Session validation latency      | 20-50ms (DB round-trip) | <1ms (edge cache hit) |
-| Database load                   | High                    | Low                   |
-
-### Implementation Architecture
-
-```
-Request (Bearer Token)
-    |
-hashToken(token)  ->  tokenHash
-    |
-+---------------------+
-| Cache API lookup    |  <- caches.default.match(cacheKey)
-+----------+----------+
-           |
-      [Cache Hit] -> Validate expiry -> Return SessionData
-           |
-      [Cache Miss]
-           |
-+---------------------+
-| Database query      |
-+----------+----------+
-           |
-      [Found] -> Write to cache (non-blocking) -> Return SessionData
-           |
-      [Not Found] -> Return null
-```
-
-### Cache Configuration
-
-| Setting    | Value                      | Rationale                                            |
-| ---------- | -------------------------- | ---------------------------------------------------- |
-| TTL        | 1 hour (3600s)             | Balance between cache hits and staleness             |
-| Cache Key  | Pseudo-URL with tokenHash  | `https://session-cache.internal/session/{tokenHash}` |
-| Write Mode | Non-blocking (`waitUntil`) | Don't slow down response                             |
-
-### Core Implementation
-
-#### Cache Module
-
-```typescript
-// src/lib/session-cache.ts
-
-// Cloudflare Workers extends CacheStorage with .default
-interface CloudflareCacheStorage extends CacheStorage {
-  default: Cache;
-}
-
-const CACHE_TTL_SECONDS = 3600; // 1 hour
-const CACHE_URL_PREFIX = "https://session-cache.internal/session/";
-
-function buildCacheKey(tokenHash: string): Request {
-  const url = `${CACHE_URL_PREFIX}${tokenHash}`;
-  return new Request(url, { method: "GET" });
-}
-
-// Read from cache
-export async function getSessionFromCache(
-  tokenHash: string,
-): Promise<CachedSessionData | null> {
-  const cache = (caches as CloudflareCacheStorage).default;
-  const cacheKey = buildCacheKey(tokenHash);
-
-  const response = await cache.match(cacheKey);
-  if (!response) return null;
-
-  const data = await response.json<CachedSessionData>();
-
-  // Restore Date object (JSON serializes as string)
-  return {
-    session: {
-      ...data.session,
-      expiresAt: new Date(data.session.expiresAt),
-    },
-    user: data.user,
-  };
-}
-
-// Write to cache (non-blocking)
-export function setSessionToCache(
-  ctx: ExecutionContext,
-  tokenHash: string,
-  sessionData: CachedSessionData,
-): void {
-  const cache = (caches as CloudflareCacheStorage).default;
-  const cacheKey = buildCacheKey(tokenHash);
-
-  const response = new Response(JSON.stringify(sessionData), {
-    headers: {
-      "Content-Type": "application/json",
-      "Cache-Control": `s-maxage=${CACHE_TTL_SECONDS}`,
-    },
-  });
-
-  // Non-blocking write
-  ctx.waitUntil(cache.put(cacheKey, response));
-}
-
-// Delete from cache (for logout)
-export async function deleteSessionFromCache(
-  tokenHash: string,
-): Promise<boolean> {
-  const cache = (caches as CloudflareCacheStorage).default;
-  const cacheKey = buildCacheKey(tokenHash);
-  return cache.delete(cacheKey);
-}
-```
-
-#### Usage in Auth Middleware
-
-```typescript
-// src/middleware/auth.ts
-
-export async function getSession(
-  env: Bindings,
-  ctx: ExecutionContext, // Required for cache write
-  headers: Headers,
-  authHeader?: string | null,
-): Promise<SessionData | null> {
-  if (authHeader?.startsWith("Bearer ")) {
-    const token = authHeader.slice(7);
-    const tokenHash = await hashToken(token);
-
-    // 1. Check cache first
-    const cached = await getSessionFromCache(tokenHash);
-    if (cached && cached.session.expiresAt > new Date()) {
-      return cached;
-    }
-
-    // 2. Cache miss - query database
-    const sessionRecord = await db.query.session.findFirst({
-      where: and(
-        eq(schema.session.token, tokenHash),
-        gt(schema.session.expiresAt, new Date()),
-      ),
-      with: { user: true },
-    });
-
-    if (sessionRecord?.user) {
-      const sessionData = {
-        /* ... */
-      };
-
-      // 3. Write to cache (non-blocking)
-      setSessionToCache(ctx, tokenHash, sessionData);
-
-      return sessionData;
-    }
-  }
-
-  // ... Cookie session handling
-}
-```
-
-### Cloudflare Cache API Key Points
-
-1. **Cache Key must be a Request object**
-
-   ```typescript
-   // Correct
-   const cacheKey = new Request("https://example.com/path", { method: "GET" });
-
-   // Wrong - string doesn't work
-   const cacheKey = "session:abc123";
-   ```
-
-2. **`caches.default` is Cloudflare-specific**
-
-   ```typescript
-   // Standard CacheStorage doesn't have .default
-   // Need type assertion for TypeScript
-   interface CloudflareCacheStorage extends CacheStorage {
-     default: Cache;
-   }
-   const cache = (caches as CloudflareCacheStorage).default;
-   ```
-
-3. **Use `waitUntil` for non-blocking writes**
-
-   ```typescript
-   // Non-blocking - response returns immediately
-   ctx.waitUntil(cache.put(cacheKey, response));
-
-   // Blocking - waits for cache write
-   await cache.put(cacheKey, response);
-   ```
-
-4. **TTL via Cache-Control header**
-   ```typescript
-   const response = new Response(JSON.stringify(data), {
-     headers: {
-       "Cache-Control": "s-maxage=3600", // 1 hour
-     },
-   });
-   ```
-
-### Cache Invalidation Strategy
-
-| Event              | Action                                   |
-| ------------------ | ---------------------------------------- |
-| User logs out      | Call `deleteSessionFromCache(tokenHash)` |
-| Session expires    | Cache TTL handles automatically          |
-| Permissions change | Short TTL (1h) limits staleness          |
-| Token revoked      | DB check will fail, cache ignored        |
-
-### Session Cache Best Practices
-
-**DO:**
-
-- Always check session expiry after cache hit
-- Use `waitUntil` for non-blocking cache writes
-- Use pseudo-URL as cache key (e.g., `https://cache.internal/...`)
-- Handle Date serialization (JSON -> string -> Date)
-- Delete cache on logout
-
-**DON'T:**
-
-- Cache sensitive data that changes frequently
-- Use very long TTL (>1h) for security-sensitive data
-- Forget to pass `ExecutionContext` to cache write functions
-- Block response waiting for cache write
+> Cloudflare R2, uploaded PDFs, OCR artifacts, and object-key safety.
 
 ---
 
-## R2 Storage Guidelines
+## Storage Model
 
-> **Cloudflare R2 storage operations with type-safe wrapper**
+Production storage uses Cloudflare R2 through the `AUDIT_BUCKET` binding.
 
-### Directory Structure
+Reference files:
 
-```
-src/lib/r2/
-├── index.ts          # Main entry - exports all functions and types
-├── types.ts          # Type definitions (StoragePrefix, R2UploadOptions, etc.)
-├── operations.ts     # Core operations (upload, download, delete, list)
-└── utils.ts          # Utilities (key generation, MIME types, validation)
-```
-
-### Storage Key Convention
-
-All storage keys follow this format:
-
-```
-{prefix}/{workspaceId}/{entityId?}/{filename}
-```
-
-**Supported Prefixes:**
-
-| Prefix        | Purpose                            | Cache Control      |
-| ------------- | ---------------------------------- | ------------------ |
-| `attachments` | Entity attachments (images, files) | 1 year (immutable) |
-| `avatars`     | User/workspace avatars             | 1 day              |
-| `exports`     | Exported data (CSV, JSON)          | 1 hour             |
-| `temp`        | Temporary files                    | 5 minutes          |
-
-### Basic Usage
-
-```typescript
-import {
-  generateStorageKey,
-  generateUniqueFilename,
-  uploadObject,
-  downloadObject,
-  deleteObject,
-} from "../lib/r2";
-
-// 1. Generate a unique storage key
-const key = generateStorageKey({
-  prefix: "attachments",
-  workspaceId: workspace.id,
-  entityId: entity.id,
-  filename: generateUniqueFilename(file.name),
-});
-// => 'attachments/ws_123/ent_456/1702800000000-a1b2c3d4-image.png'
-
-// 2. Upload file
-const result = await uploadObject(c.env.R2_BUCKET, key, file.stream(), {
-  contentType: file.type,
-});
-
-if (result.success) {
-  // Save metadata to database
-  await db.insert(attachment).values({
-    storageKey: key,
-    fileName: file.name,
-    fileSize: result.size,
-    fileType: file.type,
-  });
-}
-
-// 3. Download file
-const download = await downloadObject(c.env.R2_BUCKET, key);
-if (download.success) {
-  return new Response(download.body, {
-    headers: { "Content-Type": download.contentType },
-  });
-}
-
-// 4. Delete file
-await deleteObject(c.env.R2_BUCKET, attachment.storageKey);
-```
-
-### Upload Endpoint Pattern
-
-```typescript
-// src/routes/attachments/procedures/upload.ts
-import type { MiddlewareHandler } from "hono";
-import type { AppEnv } from "../../../types";
-import {
-  generateStorageKey,
-  generateUniqueFilename,
-  uploadObject,
-  validateUpload,
-} from "../../../lib/r2";
-
-export const uploadAttachment: MiddlewareHandler<AppEnv> = async (c) => {
-  const logger = c.get("logger");
-  const user = c.get("user");
-  const workspaceId = c.get("workspaceId");
-
-  if (!user || !workspaceId) {
-    return c.json({ success: false, reason: "Unauthorized" }, 401);
-  }
-
-  // 1. Validate request
-  const contentLength = c.req.header("content-length");
-  const contentType = c.req.header("content-type");
-
-  const validationError = validateUpload(
-    contentLength ? parseInt(contentLength, 10) : null,
-    contentType ?? null,
-  );
-
-  if (validationError) {
-    return c.json(validationError, 400);
-  }
-
-  // 2. Get file from form data
-  const formData = await c.req.formData();
-  const file = formData.get("file") as File | null;
-
-  if (!file) {
-    return c.json({ success: false, reason: "No file provided" }, 400);
-  }
-
-  // 3. Generate storage key
-  const key = generateStorageKey({
-    prefix: "attachments",
-    workspaceId,
-    filename: generateUniqueFilename(file.name),
-  });
-
-  // 4. Upload to R2
-  const result = await uploadObject(c.env.R2_BUCKET, key, file.stream(), {
-    contentType: file.type,
-    customMetadata: {
-      originalName: file.name,
-      uploadedBy: user.id,
-    },
-  });
-
-  if (!result.success) {
-    logger.error("upload_failed", { error: result.message });
-    return c.json(result, 500);
-  }
-
-  // 5. Save to database
-  const db = getDb(c.env);
-  const [attachment] = await db
-    .insert(attachmentTable)
-    .values({
-      workspaceId,
-      storageKey: key,
-      fileName: file.name,
-      fileType: file.type,
-      fileSize: result.size,
-      createdBy: user.id,
-    })
-    .returning();
-
-  logger.info("attachment_uploaded", {
-    attachmentId: attachment.id,
-    key,
-    size: result.size,
-  });
-
-  return c.json({
-    success: true,
-    attachment: {
-      id: attachment.id,
-      fileName: attachment.fileName,
-      fileSize: attachment.fileSize,
-      fileType: attachment.fileType,
-    },
-  });
-};
-```
-
-### Download Endpoint Pattern
-
-```typescript
-// src/routes/attachments/procedures/download.ts
-import { downloadObjectWithHeaders } from "../../../lib/r2";
-
-export const downloadAttachment: MiddlewareHandler<AppEnv> = async (c) => {
-  const attachmentId = c.req.param("id");
-  const workspaceId = c.get("workspaceId");
-
-  // 1. Get attachment from database
-  const db = getDb(c.env);
-  const attachment = await db.query.attachment.findFirst({
-    where: and(
-      eq(attachmentTable.id, attachmentId),
-      eq(attachmentTable.workspaceId, workspaceId),
-    ),
-  });
-
-  if (!attachment) {
-    return c.json({ success: false, reason: "Attachment not found" }, 404);
-  }
-
-  // 2. Serve from R2 with HTTP caching support
-  return downloadObjectWithHeaders(
-    c.env.R2_BUCKET,
-    attachment.storageKey,
-    c.req.raw.headers,
-  );
-};
-```
-
-### Batch Delete Pattern
-
-```typescript
-import { deleteObjects, buildEntityPrefix, listObjects } from "../../../lib/r2";
-
-// Delete all attachments for an entity
-async function deleteEntityAttachments(
-  bucket: R2Bucket,
-  workspaceId: string,
-  entityId: string,
-): Promise<void> {
-  const prefix = buildEntityPrefix("attachments", workspaceId, entityId);
-
-  // List all objects with this prefix
-  const result = await listObjects(bucket, { prefix });
-
-  if (result.success && result.objects.length > 0) {
-    const keys = result.objects.map((obj) => obj.key);
-    await deleteObjects(bucket, keys);
-  }
-}
-```
-
-### Available Functions
-
-| Function                                          | Purpose                            |
-| ------------------------------------------------- | ---------------------------------- |
-| `generateStorageKey(params)`                      | Generate storage key from params   |
-| `generateUniqueFilename(name)`                    | Add timestamp + random to filename |
-| `parseStorageKey(key)`                            | Parse key back to params           |
-| `uploadObject(bucket, key, body, options)`        | Upload file to R2                  |
-| `downloadObject(bucket, key)`                     | Download file from R2              |
-| `downloadObjectWithHeaders(bucket, key, headers)` | Download with HTTP caching         |
-| `getObjectMeta(bucket, key)`                      | Get metadata without body          |
-| `deleteObject(bucket, key)`                       | Delete single object               |
-| `deleteObjects(bucket, keys)`                     | Batch delete objects               |
-| `listObjects(bucket, options)`                    | List objects with prefix           |
-| `objectExists(bucket, key)`                       | Check if object exists             |
-| `validateUpload(contentLength, contentType)`      | Validate upload request            |
-
-### Error Handling
-
-All operations return discriminated unions:
-
-```typescript
-const result = await uploadObject(bucket, key, body);
-
-if (result.success) {
-  // result is R2UploadResult
-  console.log(result.key, result.size, result.etag);
-} else {
-  // result is R2Error
-  console.log(result.code, result.message);
-  // code: 'NOT_FOUND' | 'FORBIDDEN' | 'PAYLOAD_TOO_LARGE' | 'INVALID_KEY' | 'UPLOAD_FAILED' | 'UNKNOWN'
-}
-```
-
-### R2 Best Practices
-
-**DO:**
-
-- Always use `generateStorageKey()` for consistent key format
-- Use `generateUniqueFilename()` to prevent collisions
-- Store `storageKey` in database for later retrieval
-- Use `downloadObjectWithHeaders()` for serving files (supports Range, ETag)
-- Validate file size before upload with `validateUpload()`
-- Delete R2 objects when deleting database records
-- Use batch delete for multiple objects
-
-**DON'T:**
-
-- Construct storage keys manually (use `generateStorageKey`)
-- Store files without workspace isolation
-- Forget to handle upload errors
-- Use `downloadObject` for HTTP endpoints (use `downloadObjectWithHeaders`)
-- Leave orphaned R2 objects after database deletion
-
-### Configuration
-
-R2 bucket is configured in `wrangler.toml`:
-
-```toml
-[[r2_buckets]]
-binding = "R2_BUCKET"
-bucket_name = "your-bucket-name"
-```
-
-Access via `c.env.R2_BUCKET` in handlers.
-
----
-
-## Scenario: PDF Audit R2-Binding Uploads and PaddleOCR File Submission
-
-### 1. Scope / Trigger
-
-- Trigger: PDF audit production storage runs in Cloudflare Workers with
-  `AUDIT_OBJECT_STORE_DRIVER=r2-binding`.
-- Do not generate S3 presigned URLs in binding mode. A binding-only deployment
-  has no S3 endpoint or access-key config, so presigned URL code can fail after
-  a job and quota reservation have already been created.
-
-### 2. Signatures
-
-- `POST /api/audit/cloud-uploads`
-  - Creates the audit job and returns a same-origin upload route.
-- `PUT /api/audit/cloud-uploads/{jobId}/file`
-  - Streams the browser PDF body through the Worker into `AUDIT_BUCKET`.
-- `POST /api/audit/cloud-uploads/paddleocr`
-  - Reads the private R2 object through `AUDIT_BUCKET.get(...)` and submits it
-    to PaddleOCR multipart file mode.
-- Download route in binding mode streams artifacts from R2 through the Worker.
-
-### 3. Contracts
-
-- `POST /api/audit/cloud-uploads` response in binding mode:
-  - `uploadUrl`: `/api/audit/cloud-uploads/{jobId}/file`
-  - `method`: `PUT`
-  - `headers`: same-origin upload headers only; no R2 credentials.
-- `PUT /api/audit/cloud-uploads/{jobId}/file` requires:
-  - authenticated session,
-  - job ownership,
-  - job `objectKey` match,
-  - PDF content type,
-  - size equal to the job's reserved `uploadBytes`.
-- PaddleOCR file submission requires `PADDLEOCR_API_TOKEN` from runtime env and
-  must not expose provider tokens, file bytes, or private object URLs to the
-  browser.
-
-### 4. Validation & Error Matrix
-
-| Condition | Required behavior |
+| Concern | Path |
 | --- | --- |
-| Unauthenticated upload or submit | `401` JSON |
-| Job does not belong to current user | `404` or ownership-safe failure |
-| Uploaded content is not a PDF | fail the job and refund upload quota once |
-| Uploaded byte size differs from reserved size | fail the job and refund upload quota once |
-| R2 `put` fails | fail the job and refund upload quota once |
-| PaddleOCR submission fails | fail the job and refund OCR job quota once |
-| PaddleOCR returns `401` | return `PADDLEOCR_UNAUTHORIZED` with user-safe message |
+| Object store wrapper | `web/src/lib/cloud-object-store.ts` |
+| Upload session route | `web/src/app/api/audit/cloud-uploads/route.ts` |
+| Worker upload fallback | `web/src/app/api/audit/cloud-uploads/[jobId]/file/route.ts` |
+| PaddleOCR submission route | `web/src/app/api/audit/cloud-uploads/paddleocr/route.ts` |
+| Result/download routes | `web/src/app/api/audit/jobs/[id]/**/route.ts` |
+| Wrangler bindings | `web/wrangler.jsonc` |
 
-### 5. Good/Base/Bad Cases
+The current production driver is `r2-binding`. The older S3 presigned helper
+still exists for compatibility/tests, but production should use the Worker R2
+binding.
 
-- Good: browser uploads PDF to the same-origin Worker route; Worker writes to
-  R2 binding; Worker later reads the private object and submits multipart file
-  mode to PaddleOCR.
-- Base: r2-s3 compatibility mode may keep presigned URL behavior if S3 config is
-  explicitly present.
-- Bad: returning an R2 public URL, using S3 presigning in r2-binding mode, or
-  leaving queued jobs with reserved quota after upload-target creation fails.
+## Object Key Contract
 
-### 6. Tests Required
+Object keys must stay under the configured prefix, currently `jobs`.
 
-- Unit tests for binding-mode `putCloudObject` and `fetchCloudObjectBlob`.
-- Route or service tests for upload quota refund on failed object upload.
-- PaddleOCR tests for multipart file request construction and `401` mapping.
-- Production smoke test after deploy: create upload session, `PUT` a PDF to the
-  returned same-origin route, and confirm the upload route returns `200`.
+Current upload key shape:
 
-### 7. Wrong vs Correct
-
-#### Wrong
-
-```typescript
-const uploadUrl = await createPresignedPutUrl(objectKey)
+```text
+jobs/{jobId}/input.pdf
 ```
 
-#### Correct
+Related artifacts should be sibling keys produced through `siblingObjectKey(...)`.
 
-```typescript
-return {
-  uploadUrl: `/api/audit/cloud-uploads/${job.id}/file`,
-  method: "PUT",
-}
-```
+Rules:
 
----
+- Generate upload keys with `generateAuditObjectKey(...)`.
+- Validate every key before reads/writes with `assertSafeObjectKey(...)`.
+- Reject keys containing `..`, leading `/`, backslashes, or the wrong prefix.
+- Do not accept arbitrary user-provided object keys without matching them to the
+  authenticated job row.
 
-## KV Storage (Quick Reference)
+## Upload Flow
 
-For key-value storage needs:
+1. Authenticated user calls `POST /api/audit/cloud-uploads`.
+2. Route validates filename, size, content type, cutoff, quota, and R2 config.
+3. Route creates a D1 job row and reserves upload quota.
+4. Browser uploads the PDF through the returned upload target.
+5. Browser calls `POST /api/audit/cloud-uploads/paddleocr`.
+6. Server fetches the R2 object as a Blob and submits it to PaddleOCR file mode.
+7. Server stores provider job ID/status in D1.
 
-```typescript
-// Read
-const value = await c.env.MY_KV.get("key");
-const data = await c.env.MY_KV.get("key", "json");
+Do not reintroduce local chunk upload for production. Retired local endpoints
+return `410`.
 
-// Write
-await c.env.MY_KV.put("key", "value");
-await c.env.MY_KV.put("key", JSON.stringify(data), {
-  expirationTtl: 3600, // 1 hour
-});
+## File Validation
 
-// Delete
-await c.env.MY_KV.delete("key");
+Use `validateCloudUploadInput(...)` and route-level checks:
 
-// List
-const list = await c.env.MY_KV.list({ prefix: "user:" });
-```
+- filename must end with `.pdf`
+- content type should be `application/pdf` when available
+- file size must be positive
+- file size must not exceed the current 100MB app upload limit
+- uploaded Blob size must match the created upload session
 
-Configure in `wrangler.toml`:
+Quota must be checked before expensive provider work.
 
-```toml
-[[kv_namespaces]]
-binding = "MY_KV"
-id = "your-kv-namespace-id"
-```
+## R2 Free-Tier Boundary
 
-## Reference
+The admin quota UI and server validation assume the current Cloudflare free
+baseline documented in `web/src/lib/quota-limits.ts`:
 
-- [Cloudflare Cache API](https://developers.cloudflare.com/workers/runtime-apis/cache/)
-- [Cloudflare R2](https://developers.cloudflare.com/r2/)
-- [Cloudflare KV](https://developers.cloudflare.com/kv/)
+- R2 storage: 10GB/month
+- R2 Class A operations: 1,000,000/month
+- R2 Class B operations: 10,000,000/month
+
+These values are quota policy inputs for this project. If Cloudflare pricing or
+the account plan changes, update `quota-limits.ts`, UI copy, tests, and this spec
+in the same task.
+
+## Artifact Access
+
+- Return only short-lived upload/download URLs or same-origin redirects.
+- Do not persist public R2 URLs in the UI.
+- Do not expose R2 access keys, secret keys, bucket internals, or signed URL
+  signatures in logs or error payloads.
+- Download routes must require auth and job ownership before redirecting.
+
+## Caching
+
+There is no session cache layer in the current app. Session authority is D1 plus
+the HttpOnly cookie. Do not add Cloudflare Cache API session caching unless a
+task explicitly designs invalidation and security behavior.
+
+## Do Not Use
+
+- Do not use Hono `c.env.R2_BUCKET` examples.
+- Do not create `src/lib/r2/` modules unless the existing wrapper is being
+  intentionally split.
+- Do not store uploaded PDFs on local disk for production.
+- Do not bypass `assertSafeObjectKey`.

@@ -1,332 +1,100 @@
-# API Module Patterns
+# API Patterns
 
-> Best practices, common patterns, and anti-patterns.
-
----
-
-## Best Practices
-
-**DO**:
-
-```typescript
-// 1. Always validate inputs with Zod
-const input = createWorkspaceInputSchema.parse(await c.req.json());
-
-// 2. Use typed return values
-export const createWorkspace: MiddlewareHandler<AppEnv> = async (c) => {
-  // ...
-  const output: CreateWorkspaceOutput = { success: true, workspace };
-  return c.json(output);
-};
-
-// 3. Extract reusable logic to lib/
-const workspace = await getWorkspaceWithAuth(db, workspaceId, userId);
-
-// 4. Use structured logging
-const logger = c.get("logger");
-logger.info("workspace_created", { workspaceId });
-
-// 5. Return consistent response format
-return c.json({ success: true, workspace });
-return c.json({ success: false, reason: "Already exists" }, 409);
-
-// 6. Import types from types.ts
-import type { Workspace, CreateWorkspaceInput } from "../types";
-```
-
-**DON'T**:
-
-```typescript
-// 1. Don't skip validation
-export const createWorkspace = async (c) => {
-  const body = await c.req.json();  // No validation
-  await db.insert(workspaces).values(body);  // Unvalidated input
-};
-
-// 2. Don't define types inline
-export const createWorkspace = async (
-  c,
-  input: { name: string; description?: string }  // Define in types.ts
-) => { /* ... */ };
-
-// 3. Don't duplicate logic
-// Same auth check in every procedure
-const workspace = await db.query.workspaces.findFirst(...);
-if (!workspace) throw new Error("Not found");
-// Check membership...
-
-// Extract to lib/workspace-utils.ts
-const workspace = await getWorkspaceWithAuth(db, workspaceId, userId);
-
-// 4. Don't use console.log
-console.log("Workspace created");  // Use logger
-logger.info("workspace_created", { workspaceId });  // Good
-
-// 5. Don't return inconsistent formats
-return workspace;  // Inconsistent
-return { success: true, workspace };  // Consistent
-```
+> Common Next.js API route patterns for the audit service.
 
 ---
 
-## Common Patterns
+## Route Skeleton
 
-### 1. Create Operation
+```ts
+import { NextResponse } from "next/server"
+import { jsonError } from "@/lib/api-response"
+import { requireAuth } from "@/lib/auth"
 
-```typescript
-export const createEntity: MiddlewareHandler<AppEnv> = async (c) => {
-  // 1. Validate
-  const data = createInputSchema.parse(await c.req.json());
+export const runtime = "nodejs"
 
-  // 2. Check duplicates
-  const existing = await findExisting(db, data);
-  if (existing)
-    return c.json({ success: false, reason: "Already exists" }, 409);
-
-  // 3. Create
-  const [entity] = await db.insert(table).values(data).returning();
-
-  // 4. Log
-  logger.info("entity_created", { id: entity.id });
-
-  // 5. Return
-  return c.json({ success: true, entity });
-};
-```
-
-### 2. List with Filters
-
-```typescript
-export const listEntities: MiddlewareHandler<AppEnv> = async (c) => {
-  const filters = listInputSchema.parse(c.req.query());
-
-  const whereCondition = getEntitiesWhereCondition(filters);
-
-  const entities = await db.query.entities.findMany({
-    where: whereCondition,
-    limit: filters.limit,
-    offset: filters.offset,
-    orderBy: (entities, { desc }) => [desc(entities.createdAt)],
-  });
-
-  const total = await db.$count(entitiesTable, whereCondition);
-
-  return c.json({
-    success: true,
-    entities,
-    total,
-    limit: filters.limit,
-    offset: filters.offset,
-  });
-};
-```
-
-### 3. Update with Authorization
-
-```typescript
-export const updateEntity: MiddlewareHandler<AppEnv> = async (c) => {
-  const data = updateInputSchema.parse(await c.req.json());
-  const user = c.get("user");
-
-  // Verify ownership
-  const entity = await getEntityWithAuth(db, data.entityId, user!.id);
-
-  // Update
-  const [updated] = await db
-    .update(entitiesTable)
-    .set(data)
-    .where(eq(entitiesTable.id, entity.id))
-    .returning();
-
-  return c.json({ success: true, entity: updated });
-};
-```
-
-### 4. Batch Operation
-
-```typescript
-export const batchDelete: MiddlewareHandler<AppEnv> = async (c) => {
-  const { entityIds } = batchDeleteInputSchema.parse(await c.req.json());
-  const user = c.get("user");
-
-  // Fetch and authorize
-  const { authorized, unauthorizedIds } = await fetchAuthorizedEntities(
-    db,
-    entityIds,
-    user!.id,
-  );
-
-  // Delete in parallel
-  const results = await Promise.allSettled(
-    authorized.map((entity) =>
-      db.delete(entitiesTable).where(eq(entitiesTable.id, entity.id)),
-    ),
-  );
-
-  const processed = results.filter((r) => r.status === "fulfilled").length;
-  const failed = results.length - processed;
-
-  return c.json({
-    success: true,
-    total: entityIds.length,
-    processed,
-    failed,
-    unauthorizedIds,
-  });
-};
-```
-
----
-
-## Anti-Patterns
-
-### Anti-Pattern 1: Fat Procedures
-
-**Problem**: All logic in procedure, hard to test and reuse.
-
-```typescript
-// BAD: 200 lines of logic in procedure
-export const createOrder = async (c) => {
-  const data = createOrderInputSchema.parse(await c.req.json());
-
-  // 50 lines of validation logic
-  if (!validateStock(data.items)) { /* ... */ }
-  if (!validatePayment(data.payment)) { /* ... */ }
-  if (!validateAddress(data.address)) { /* ... */ }
-
-  // 50 lines of calculation logic
-  const subtotal = calculateSubtotal(data.items);
-  const tax = calculateTax(subtotal, data.address);
-  const shipping = calculateShipping(data.items, data.address);
-
-  // 50 lines of database operations
-  const order = await db.insert(ordersTable).values(...);
-  await db.insert(orderItemsTable).values(...);
-  await db.update(productsTable).set(...);
-
-  // 50 lines of notification logic
-  await sendEmailToCustomer(...);
-  await sendNotificationToWarehouse(...);
-
-  return c.json({ success: true, order });
-};
-```
-
-**Solution**: Extract to lib/
-
-```typescript
-// GOOD: Procedure orchestrates, lib implements
-export const createOrder: MiddlewareHandler<AppEnv> = async (c) => {
-  const data = createOrderInputSchema.parse(await c.req.json());
-
-  // Validate (extracted)
-  await validateOrderData(data);
-
-  // Calculate (extracted)
-  const totals = calculateOrderTotals(data);
-
-  // Create (extracted)
-  const order = await createOrderWithItems(db, data, totals);
-
-  // Notify (extracted)
-  await notifyOrderCreated(order);
-
-  return c.json({ success: true, order });
-};
-```
-
-### Anti-Pattern 2: Scattered Types
-
-**Problem**: Types defined in multiple files, hard to maintain.
-
-```typescript
-// BAD: Types in procedures
-// procedures/create.ts
-interface CreateWorkspaceInput {
-  name: string;
-  description?: string;
-}
-
-// procedures/update.ts
-interface UpdateWorkspaceInput {
-  id: string;
-  name: string;
-}
-
-// procedures/list.ts
-interface ListWorkspacesInput {
-  limit: number;
-  offset: number;
+export async function POST(request: Request) {
+  try {
+    const context = await requireAuth(request)
+    const body = (await request.json().catch(() => null)) as unknown
+    // validate body before side effects
+    return NextResponse.json({ userId: context.user.id })
+  } catch (error) {
+    return jsonError(error, "操作失败")
+  }
 }
 ```
 
-**Solution**: Centralize in types.ts
+Rules:
 
-```typescript
-// GOOD: All types in types.ts
-// types.ts
-export const createWorkspaceInputSchema = z.object({ ... });
-export const updateWorkspaceInputSchema = z.object({ ... });
-export const listWorkspacesInputSchema = z.object({ ... });
+- Set `runtime = "nodejs"` for routes that use the current OpenNext/Cloudflare
+  runtime helpers.
+- Import server helpers through `@/lib/...`.
+- Catch unknown errors with `jsonError`.
+- Return compact JSON payloads.
 
-export type CreateWorkspaceInput = z.infer<typeof createWorkspaceInputSchema>;
-export type UpdateWorkspaceInput = z.infer<typeof updateWorkspaceInputSchema>;
-export type ListWorkspacesInput = z.infer<typeof listWorkspacesInputSchema>;
+## Body Parsing
+
+Use explicit parsing and validation:
+
+```ts
+const payload = (await request.json().catch(() => null)) as {
+  jobId?: string
+  objectKey?: string
+} | null
+
+if (!payload?.jobId) {
+  return NextResponse.json({ error: "缺少任务 ID" }, { status: 400 })
+}
 ```
 
-### Anti-Pattern 3: Missing Validation
+Do not pass unvalidated request bodies to D1, R2, or PaddleOCR helpers.
 
-**Problem**: Directly use unvalidated input.
+## Auth And Ownership
 
-```typescript
-// BAD: No validation
-export const createWorkspace = async (c) => {
-  const body = await c.req.json();
-  await db.insert(workspaces).values({
-    name: body.name, // What if name is missing?
-    description: body.description,
-  });
-};
+Authenticate before loading sensitive data:
+
+```ts
+const context = await requireAuth(request)
+const db = await getAuditDb()
+const job = await db.getJobForUser(id, context.user.id)
+if (!job) return NextResponse.json({ error: "任务不存在" }, { status: 404 })
 ```
 
-**Solution**: Always validate with Zod
+Admin routes must use `requireAdmin(request)`.
 
-```typescript
-// GOOD: Validate first
-export const createWorkspace: MiddlewareHandler<AppEnv> = async (c) => {
-  const data = createWorkspaceInputSchema.parse(await c.req.json()); // Throws if invalid
+## Cloud Upload Pattern
 
-  await db.insert(workspaces).values({
-    name: data.name, // Guaranteed valid
-    description: data.description, // Type-safe
-  });
-};
-```
+For PDF upload flows:
 
----
+1. Validate filename/size/type/cutoff.
+2. Create or validate object key through `cloud-object-store.ts`.
+3. Reserve upload quota before upload work.
+4. Create/update the D1 job row.
+5. Return only the upload information the browser needs.
+6. On provider submission, verify the job ID and object key match the stored job.
 
-## Quick Reference
+## PaddleOCR Pattern
 
-### Response Formats
+Use provider helpers in `web/src/lib/paddleocr.ts`:
 
-| Operation | Success Response                                       | Error Response                            |
-| --------- | ------------------------------------------------------ | ----------------------------------------- |
-| Create    | `{ success: true, entity: {...} }`                     | `{ success: false, reason: "..." }`       |
-| Get       | `{ success: true, entity: {...} }`                     | `{ success: false, reason: "Not found" }` |
-| List      | `{ success: true, entities: [...], total: N }`         | `{ success: false, reason: "..." }`       |
-| Update    | `{ success: true, entity: {...} }`                     | `{ success: false, reason: "..." }`       |
-| Delete    | `{ success: true }`                                    | `{ success: false, reason: "..." }`       |
-| Batch     | `{ success: true, total: N, processed: N, failed: N }` | `{ success: false, reason: "..." }`       |
+- `submitPaddleOcrFileJob`
+- `fetchPaddleOcrJobSnapshot`
+- `parsePaddleOcrJsonlMarkdown`
+- `paddleOcrMarkdownPagesToOcrText`
 
-### HTTP Status Codes
+Provider tokens are server-only. Never send `PADDLEOCR_API_TOKEN` or full
+provider response payloads to the browser.
 
-| Status | Use Case                         |
-| ------ | -------------------------------- |
-| 200    | Successful operation             |
-| 201    | Resource created                 |
-| 400    | Invalid input (validation error) |
-| 401    | Unauthorized (not logged in)     |
-| 403    | Forbidden (no permission)        |
-| 404    | Resource not found               |
-| 409    | Conflict (duplicate)             |
-| 500    | Internal server error            |
+## Retired Local Endpoints
+
+The old local upload/OCR endpoints intentionally return `410`. Keep them as
+compatibility signals for clients, but do not build new production behavior on
+top of them.
+
+## Do Not Use
+
+- Do not use Hono middleware/procedure examples.
+- Do not introduce Zod schemas as a requirement without adding the dependency and
+  updating the project pattern.
+- Do not return inconsistent secrets or raw storage/provider internals.

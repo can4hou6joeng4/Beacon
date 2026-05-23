@@ -1,4 +1,4 @@
-# Thinking Guides for Cloudflare Workers Full-Stack Projects
+# Thinking Guides
 
 > **Purpose**: Systematic thinking guides to catch issues before they become bugs in Cloudflare Workers full-stack applications.
 >
@@ -12,8 +12,8 @@
 
 - Didn't think about serverless connection lifecycle -> stale connection zombies
 - Didn't think about platform limits -> SSE fails after 2.5 minutes
-- Didn't think about route namespace conflicts -> API swallows frontend routes
-- Didn't think about resource-level scoping -> OAuth tokens missing context
+- Didn't think about route namespace conflicts -> API and app routes disagree
+- Didn't think about provider limits -> OCR quota math drifts from PaddleOCR limits
 
 These guides help you **ask the right questions before coding**.
 
@@ -53,7 +53,10 @@ Use [OAuth Consent Flow](./oauth-consent-flow.md) when:
 - [ ] Route conflicts between API routes and frontend routes
 - [ ] Implementing OAuth 2.1 with PKCE for external clients
 - [ ] Building consent UI with resource selection
-- [ ] Designing KV storage schema for OAuth tokens and clients
+- [ ] Designing OAuth token/client storage for a future OAuth task
+
+The current project does not use OAuth. For normal account auth, prefer
+`../frontend/authentication.md` and `../backend/security.md`.
 
 ---
 
@@ -75,25 +78,22 @@ This single habit prevents most "forgot to update X" bugs.
 
 ## Cloudflare Workers-Specific Layers
 
-In Cloudflare Workers full-stack projects, these are the typical layers:
+In this project, the production layers are:
 
 ```
-Frontend Layer (React/Remix/Astro Components)
+Next.js Server Component App Shell
         |
         v
-Frontend Routes (SSR, client-side routing)
+Client Audit Workbench
         |
         v
-API Routes (Hono/itty-router, /api/*, /oauth/*)
+Next.js API Routes (app/api/**/route.ts)
         |
         v
-Middleware Layer (Auth, CORS, logging)
+Service Layer (auth, quota, audit, provider parsing)
         |
         v
-Service Layer (Business logic, validation)
-        |
-        v
-Data Layer (Drizzle ORM, KV, R2, D1, Turso)
+Data/Provider Layer (D1, R2, PaddleOCR)
 ```
 
 Each boundary is a potential source of bugs due to:
@@ -101,8 +101,8 @@ Each boundary is a potential source of bugs due to:
 - **Route conflicts** - API route mounting swallows frontend paths
 - **Serverless lifecycle** - Connections go stale between request reuse
 - **Platform limits** - 50 subrequest limit (Free), CPU time limits
-- **Serialization** - KV stores strings; JSON parse/stringify at every boundary
-- **Environment bindings** - `env` must be threaded through, not cached globally
+- **Serialization** - provider JSONL and OCR markdown must be parsed before UI use
+- **Environment bindings** - D1/R2 bindings must come through OpenNext helpers
 
 ---
 

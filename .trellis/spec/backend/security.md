@@ -1,579 +1,126 @@
-# Security Patterns
+# Security Guidelines
 
-> Authentication, token management, session handling, and secure patterns for Cloudflare Workers.
-
----
-
-## Overview
-
-This guide covers security patterns for Cloudflare Workers including:
-
-- Token generation and hashing
-- Session management
-- OAuth security
-- Authentication middleware
+> Authentication, authorization, token handling, quota safety, and provider
+> secret handling for the Cloudflare production app.
 
 ---
 
-## Token Security
-
-### Secure Token Generation
-
-Use `crypto.getRandomValues()` for cryptographically secure random tokens:
-
-```typescript
-// src/lib/security.ts
-
-/**
- * Generate secure random string
- * - Uses Web Crypto API (Cloudflare Workers compatible)
- * - Base62 encoding (a-z, A-Z, 0-9)
- * - 32 chars = ~190 bits entropy
- */
-export function generateSecureCode(length = 32): string {
-  const chars =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  const array = new Uint8Array(length);
-  crypto.getRandomValues(array);
-  return Array.from(array, (byte) => chars[byte % chars.length]).join("");
-}
-```
-
-**Important**: Call `crypto.getRandomValues()` inside request handlers, NOT in global scope.
-
-### Token Hashing (SHA-256)
-
-Never store raw tokens in database. Always hash them:
-
-```typescript
-/**
- * Hash token using SHA-256
- * - Original token returned to client
- * - Hash stored in database
- * - If database leaks, attacker cannot use tokens
- */
-export async function hashToken(token: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(token);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-```
-
-### Timing-Safe Comparison
-
-Prevent timing attacks when verifying tokens:
-
-```typescript
-/**
- * Timing-safe string comparison
- * Execution time is constant regardless of where mismatch occurs
- */
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) {
-    return false;
-  }
-  let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return result === 0;
-}
-
-export async function verifyToken(
-  token: string,
-  hash: string,
-): Promise<boolean> {
-  const tokenHash = await hashToken(token);
-  return timingSafeEqual(tokenHash, hash);
-}
-```
-
----
-
-## Session Management
-
-### Project Account Auth Contract
-
-#### 1. Scope / Trigger
-
-- Trigger: production auth, admin user creation, quota enforcement, or audit job ownership changes.
-- The Cloudflare production app uses first-party accounts. Do not restore the retired shared URL token gate for normal access.
-
-#### 2. Signatures
-
-- Auth APIs:
-  - `POST /api/auth/bootstrap`
-  - `POST /api/auth/login`
-  - `POST /api/auth/logout`
-  - `GET /api/auth/me`
-  - `GET /api/admin/users`
-  - `POST /api/admin/users`
-  - `PATCH /api/admin/users/[id]`
-- Session cookie: `pdf_audit_session`, HttpOnly, `SameSite=Lax`, `Secure` on HTTPS.
-- D1 tables: `users`, `sessions`, `user_quotas`, `quota_ledger`.
-- Job ownership columns: `jobs.user_id`, `jobs.upload_bytes`, `jobs.ocr_pages_used`.
-
-#### 3. Contracts
-
-- Only admins can create or disable users; public signup is out of scope.
-- First admin creation is allowed only while `users` is empty and must be guarded by the `AUTH_BOOTSTRAP_TOKEN` Worker secret.
-- Password hashes use PBKDF2-SHA-256 with per-user salt and stored iteration count.
-- Cloudflare Workers Web Crypto rejects PBKDF2 iteration counts above `100000`; keep the default `PASSWORD_ITERATIONS` at or below that value and cover it with a regression test.
-- Session tokens are returned only as cookies and stored in D1 as SHA-256 hashes.
-- Normal users can read, submit, poll, and download only their own audit jobs.
-- Usage quotas are lifetime limits in the MVP for `upload_bytes`, `ocr_jobs`, and `ocr_pages`, tracked in an append-only ledger.
-
-#### 4. Validation & Error Matrix
-
-| Condition | Required response |
-| --- | --- |
-| Missing or invalid session cookie | `401` JSON for API calls; render sign-in UI for the app shell |
-| Non-admin calls admin API | `403` JSON |
-| `AUTH_BOOTSTRAP_TOKEN` missing | `503` from bootstrap |
-| Bootstrap after a user already exists | `409` from bootstrap |
-| Duplicate email | `409` from user creation |
-| Password below minimum length | `400` from user creation/bootstrap |
-| Upload quota exhausted | Reject cloud upload creation before reserving storage |
-| OCR job/page quota exhausted | Reject or refund according to the ledger action already recorded |
-| Admin upload quota above Cloudflare R2 free storage baseline | `400` with `UPLOAD_QUOTA_LIMIT_EXCEEDED` |
-| Admin OCR page quota above PaddleOCR daily PDF page limit | `400` with `OCR_PAGE_LIMIT_EXCEEDED` |
-
-#### 5. Good/Base/Bad Cases
-
-- Good: admin logs in, creates a user with quotas, and each new job persists a matching `user_id` and ledger rows.
-- Base: unauthenticated `/api/auth/me` returns `401`; authenticated `/api/auth/me` returns the user and quota snapshot.
-- Bad: accepting a query-string shared token, storing a raw session token, or writing quota usage without a ledger entry.
-- Bad: letting an admin set upload quota above the 10GB R2 free storage
-  baseline or OCR page quota above the 2,000-page PaddleOCR daily limit.
-
-#### 6. Tests Required
-
-- Unit tests for password hashing, token hashing, and the Cloudflare-compatible PBKDF2 iteration limit.
-- Unit tests for auth DB create/login/session and quota ledger math.
-- Ownership tests for history, result, status, and download paths.
-- Quota validation tests for rejecting upload limits above 10GB and OCR page
-  limits above 2,000 pages.
-- Production smoke test after deploy: login with an admin account and call `/api/auth/me` using the returned cookie.
-
-#### 7. Wrong vs Correct
-
-##### Wrong
-
-```typescript
-const PASSWORD_ITERATIONS = 210_000
-const sessionToken = tokenFromDatabase
-```
-
-##### Correct
-
-```typescript
-export const PASSWORD_ITERATIONS = 100_000
-const sessionTokenHash = await hashToken(rawSessionToken)
-```
-
-### Project Quota Boundary Contract
-
-#### 1. Scope / Trigger
-
-- Trigger: admin user creation/update, bootstrap admin defaults, and any UI that
-  displays upload/OCR quota.
-- The MVP quota ledger is lifetime-based, but configured limits must still stay
-  inside the external free/provider limits currently used by production.
-
-#### 2. Signatures
-
-- Shared constants: `src/lib/quota-limits.ts`
-  - `DEFAULT_UPLOAD_QUOTA_BYTES`
-  - `DEFAULT_UPLOAD_QUOTA_MB`
-  - `DEFAULT_OCR_JOB_QUOTA`
-  - `DEFAULT_OCR_PAGE_QUOTA`
-  - `MAX_UPLOAD_QUOTA_BYTES`
-  - `MAX_OCR_PAGE_QUOTA`
-- Validation entry point: `normalizeQuota(...)` in `src/lib/auth.ts`.
-
-#### 3. Contracts
-
-- Upload quota maximum: 10GB, matching the Cloudflare R2 free Standard storage
-  baseline used for this project.
-- OCR page quota maximum: 2,000 pages, matching the PaddleOCR daily PDF parsing
-  limit.
-- Default user/bootstrap quota:
-  - upload: 10GB,
-  - OCR jobs: 25,
-  - OCR pages: 2,000.
-- The admin UI must import these constants instead of duplicating numeric
-  literals.
-
-#### 4. Validation & Error Matrix
-
-| Condition | Required response |
-| --- | --- |
-| `uploadBytesLimit > MAX_UPLOAD_QUOTA_BYTES` | `400`, `UPLOAD_QUOTA_LIMIT_EXCEEDED` |
-| `ocrPagesLimit > MAX_OCR_PAGE_QUOTA` | `400`, `OCR_PAGE_LIMIT_EXCEEDED` |
-| negative or non-integer quota value | `400`, `INVALID_QUOTA` |
-
-#### 5. Good/Base/Bad Cases
-
-- Good: admin creates a user with 10GB upload, 25 OCR jobs, and 2,000 OCR pages.
-- Base: admin lowers a user's quota below current usage; remaining quota is
-  clamped to zero by the existing snapshot math.
-- Bad: hardcoding `100000` OCR pages in bootstrap or UI defaults.
-
-#### 6. Tests Required
-
-- Unit tests call `createUser(...)` and assert that above-limit upload and OCR
-  page values reject with the specific error codes.
-- Production smoke test after deployment calls `/api/auth/me` and confirms
-  existing admin quota is migrated to the new boundary.
-
-#### 7. Wrong vs Correct
-
-##### Wrong
-
-```typescript
-const DEFAULT_ADMIN_QUOTA = { ocrPagesLimit: 100000 }
-```
-
-##### Correct
-
-```typescript
-const DEFAULT_ADMIN_QUOTA = {
-  uploadBytesLimit: DEFAULT_UPLOAD_QUOTA_BYTES,
-  ocrPagesLimit: DEFAULT_OCR_PAGE_QUOTA,
-}
-```
-
-### Session Table Schema
-
-Include device tracking fields for session management:
-
-```typescript
-export const session = sqliteTable("session", {
-  id: text("id").primaryKey(),
-  token: text("token").notNull(), // Store HASH, not raw token
-  userId: text("userId").notNull(),
-  expiresAt: integer("expiresAt", { mode: "timestamp" }).notNull(),
-  // Device tracking
-  deviceType: text("deviceType"), // 'desktop' | 'web' | 'mobile'
-  deviceId: text("deviceId"), // Unique device identifier
-  appVersion: text("appVersion"), // Client version
-  // Context
-  ipAddress: text("ipAddress"),
-  userAgent: text("userAgent"),
-});
-```
-
-### Session Cleanup Strategy
-
-Prevent session table bloat with cleanup on new session creation:
-
-```typescript
-async function cleanupSessions(
-  db: Database,
-  userId: string,
-  deviceId: string | undefined,
-  deviceType: string,
-  logger: RequestLogger,
-): Promise<void> {
-  const now = new Date();
-
-  // 1. Clean expired sessions
-  await db
-    .delete(schema.session)
-    .where(
-      and(
-        eq(schema.session.userId, userId),
-        eq(schema.session.deviceType, deviceType),
-        lt(schema.session.expiresAt, now),
-      ),
-    );
-
-  // 2. Same-device replacement (if deviceId provided)
-  if (deviceId) {
-    await db
-      .delete(schema.session)
-      .where(
-        and(
-          eq(schema.session.userId, userId),
-          eq(schema.session.deviceType, deviceType),
-          eq(schema.session.deviceId, deviceId),
-        ),
-      );
-  }
-
-  // 3. Limit max sessions per user (e.g., 10)
-  const MAX_SESSIONS = 10;
-  const existingSessions = await db.query.session.findMany({
-    where: and(
-      eq(schema.session.userId, userId),
-      eq(schema.session.deviceType, deviceType),
-      gt(schema.session.expiresAt, now),
-    ),
-    orderBy: [desc(schema.session.createdAt)],
-    columns: { id: true },
-  });
-
-  if (existingSessions.length >= MAX_SESSIONS) {
-    const toDelete = existingSessions.slice(MAX_SESSIONS - 1);
-    for (const session of toDelete) {
-      await db.delete(schema.session).where(eq(schema.session.id, session.id));
-    }
-  }
-}
-```
-
----
-
-## OAuth Security
-
-### Redirect URI Validation
-
-Whitelist-based validation for OAuth redirect URIs:
-
-```typescript
-const ALLOWED_REDIRECT_URIS = [
-  "yourapp://auth/callback",
-  "yourapp://auth-complete",
-];
-
-/**
- * Normalize custom protocol URI for comparison
- * Note: yourapp://auth/callback parses as host="auth", pathname="/callback"
- */
-function normalizeCustomUri(url: URL): string {
-  return `${url.protocol}//${url.host}${url.pathname}`;
-}
-
-export function isValidRedirectUri(uri: string): boolean {
-  try {
-    const url = new URL(uri);
-
-    // Must be your custom protocol
-    if (url.protocol !== "yourapp:") {
-      return false;
-    }
-
-    const normalizedUri = normalizeCustomUri(url);
-
-    return ALLOWED_REDIRECT_URIS.some((allowed) => {
-      const allowedUrl = new URL(allowed);
-      return normalizedUri === normalizeCustomUri(allowedUrl);
-    });
-  } catch {
-    return false;
-  }
-}
-```
-
-**Common Pitfall**: Custom protocol URLs like `yourapp://auth/callback` parse with:
-
-- `host = "auth"`
-- `pathname = "/callback"`
-
-This is different from what you might expect!
-
-### One-Time Code Pattern (Desktop/Mobile OAuth)
-
-For OAuth flows where the client cannot receive cookies:
-
-```typescript
-// 1. After successful login, generate one-time code
-const code = generateSecureCode();
-await db.insert(loginCode).values({
-  code,
-  userId: user.id,
-  redirectUri,
-  expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 min
-});
-
-// 2. Client exchanges code for token (with optimistic locking)
-const updateResult = await db
-  .update(loginCode)
-  .set({ usedAt: new Date() })
-  .where(
-    and(
-      eq(loginCode.id, codeRecord.id),
-      isNull(loginCode.usedAt), // Optimistic lock
-    ),
-  );
-
-if (updateResult.rowsAffected === 0) {
-  throw new HTTPException(401, { message: "Code already used" });
-}
-
-// 3. Create session with hashed token
-const sessionToken = generateSecureCode();
-const sessionTokenHash = await hashToken(sessionToken);
-
-await db.insert(session).values({
-  token: sessionTokenHash, // Store hash
-  userId: codeRecord.userId,
-  expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-  deviceType: "desktop",
-});
-
-// Return raw token to client
-return c.json({ accessToken: sessionToken });
-```
-
----
-
-## Authentication Middleware
-
-### Basic Auth Middleware Pattern
-
-```typescript
-import type { MiddlewareHandler } from "hono";
-import type { AppEnv } from "../types";
-import { HTTPException } from "hono/http-exception";
-
-export const requireSession = (): MiddlewareHandler<AppEnv> => {
-  return async (c, next) => {
-    const logger = c.get("logger");
-
-    // Check cookie session first (web)
-    const cookieSession = await getCookieSession(c);
-    if (cookieSession) {
-      c.set("session", cookieSession.session);
-      c.set("user", cookieSession.user);
-      logger.setContext({ userId: cookieSession.user.id });
-      return next();
-    }
-
-    // Check bearer token (desktop/mobile)
-    const authHeader = c.req.header("Authorization");
-    if (authHeader?.startsWith("Bearer ")) {
-      const token = authHeader.slice(7);
-      const tokenSession = await getTokenSession(c.env, token);
-
-      if (tokenSession) {
-        c.set("session", tokenSession.session);
-        c.set("user", tokenSession.user);
-        logger.setContext({ userId: tokenSession.user.id });
-        return next();
-      }
-    }
-
-    logger.warn("unauthorized_access");
-    throw new HTTPException(401, { message: "Unauthorized" });
-  };
-};
-
-export const optionalSession = (): MiddlewareHandler<AppEnv> => {
-  return async (c, next) => {
-    // Same logic but don't throw on failure
-    try {
-      // ... authentication logic
-    } catch {
-      // Continue without session
-    }
-    return next();
-  };
-};
-```
-
-### Middleware Selection Guide
-
-| Middleware          | Cookie (Web) | Bearer Token (Desktop) | Use Case                       |
-| ------------------- | ------------ | ---------------------- | ------------------------------ |
-| `requireSession()`  | Yes          | Yes                    | User-facing APIs               |
-| `optionalSession()` | Yes          | Yes                    | Public APIs with optional auth |
-
-**Use `requireSession()` for:**
-
-- User-facing APIs (workspaces, docs, etc.)
-- APIs that require authentication
-
-```typescript
-// src/routes/workspaces/router.ts
-import { requireSession } from "../../middleware/auth";
-
-const app = new Hono<AppEnv>();
-app.use("*", requireSession());
-```
-
----
-
-## API Key Pattern (Optional)
-
-If your application needs API keys for third-party integrations:
-
-### API Key Format
-
-API Keys use a distinctive prefix for easy identification:
-
-```
-pk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-|  └─────────────────────────────────── 32 random chars
-└──────────────────────────────────────── "pk_" prefix (Project Key)
-```
-
-The middleware can detect the prefix in Bearer tokens and route to API Key validation.
-
-### API Key Table Schema
-
-```typescript
-export const apiKey = sqliteTable("api_key", {
-  id: text("id").primaryKey(),
-  keyHash: text("key_hash").notNull(), // Store hash only
-  userId: text("user_id").notNull(),
-  name: text("name").notNull(),
-  lastUsedAt: integer("last_used_at", { mode: "timestamp" }),
-  expiresAt: integer("expires_at", { mode: "timestamp" }),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-});
-```
-
----
-
-## Security Checklist
-
-**Token Handling:**
-
-- [ ] Generate tokens with `crypto.getRandomValues()`
-- [ ] Hash tokens with SHA-256 before storing
-- [ ] Use timing-safe comparison for verification
-- [ ] Never log raw tokens
-
-**Session Management:**
-
-- [ ] Set reasonable expiration (e.g., 30 days for desktop)
-- [ ] Track device type and ID
-- [ ] Clean up expired sessions
-- [ ] Limit max sessions per user
-- [ ] Support same-device replacement
-
-**OAuth Security:**
-
-- [ ] Whitelist-based redirect URI validation
-- [ ] One-time codes for token exchange
-- [ ] Optimistic locking to prevent code reuse
-- [ ] Short expiration for exchange codes (5 min)
-
-**General:**
-
-- [ ] Use HTTPS in production
-- [ ] Set secure cookie flags (Secure, HttpOnly, SameSite)
-- [ ] Validate all user input
-- [ ] Rate limit authentication endpoints
-- [ ] Log authentication events (success and failure)
-
----
-
-## Authentication Libraries
-
-For production applications, consider using established authentication libraries:
-
-- **Better Auth** - TypeScript-first authentication framework
-- **Lucia** - Lightweight auth library
-- **Auth.js** - OAuth provider support
-
-These libraries handle many security concerns automatically.
-
-## Reference
-
-- [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API)
-- [OWASP Session Management](https://owasp.org/www-project-cheat-sheets/cheatsheets/Session_Management_Cheat_Sheet.html)
-- [OAuth 2.0 Security Best Practices](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-security-topics)
+## Auth Boundary
+
+The project uses first-party account auth:
+
+- `web/src/lib/auth.ts`
+- `web/src/lib/auth-crypto.ts`
+- `web/src/lib/auth-db-d1.ts`
+- `web/src/lib/auth-types.ts`
+
+Session cookie:
+
+- name: `pdf_audit_session`
+- HttpOnly
+- SameSite=Lax
+- Secure on HTTPS/production
+- raw token visible only at login so the route can set the cookie
+- token hash stored in D1
+
+Do not restore the retired shared URL token gate for normal access.
+
+## Admin Rules
+
+- Public signup is out of scope.
+- Only admins can create, update, disable, or promote users.
+- The first admin can be bootstrapped only while the `users` table is empty.
+- Bootstrap requires `AUTH_BOOTSTRAP_TOKEN`; missing config fails with `503`.
+- Admin UI must prevent self-disable, and the server remains the authority.
+
+## Password And Session Tokens
+
+Reference: `web/src/lib/auth-crypto.ts`.
+
+- Passwords use PBKDF2/SHA-256 with per-user salt and stored iteration count.
+- `PASSWORD_ITERATIONS` is currently `100_000`; keep it Cloudflare-compatible.
+- Session tokens use 32 bytes of cryptographic randomness and base64url output.
+- Session tokens are hashed with SHA-256 before storage.
+- Use timing-safe comparison for password hash checks.
+
+Never log raw passwords, raw session tokens, bootstrap tokens, PaddleOCR tokens,
+or R2 secrets.
+
+## Job Ownership
+
+Normal users can read, poll, submit, and download only their own audit jobs.
+Admins may manage users, but audit job access should still be explicit in the
+DB/service layer rather than inferred from UI state.
+
+Protected routes should call `requireAuth(request)` or `requireAdmin(request)`
+before loading sensitive rows or objects.
+
+## Quota Security
+
+Quota resources:
+
+- `upload_bytes`
+- `ocr_jobs`
+- `ocr_pages`
+
+Rules:
+
+- Reserve upload bytes before issuing/accepting an upload.
+- Consume OCR job quota once per provider submission.
+- Consume OCR page quota based on extracted/known page count deltas.
+- Refund quota through ledger entries when a reserved/consumed operation fails
+  and the existing flow calls for a refund.
+- Never update usage totals directly; use append-only `quota_ledger` rows.
+
+Limits are enforced in `web/src/lib/auth.ts` and constants live in
+`web/src/lib/quota-limits.ts`:
+
+- upload quota max: 10GB
+- OCR page quota max: 2,000 pages per PaddleOCR daily limit
+
+## Provider And Storage Secrets
+
+Required secrets:
+
+- `AUTH_BOOTSTRAP_TOKEN`
+- `PADDLEOCR_API_TOKEN`
+
+R2 is accessed through the `AUDIT_BUCKET` binding in production. If S3
+compatibility variables are used in tests or fallback paths, treat access key ID,
+secret access key, endpoint signatures, and presigned URLs as sensitive.
+
+Do not put secrets in source, `.trellis/spec`, screenshots, `NEXT_PUBLIC_*`
+variables, or user-visible error payloads.
+
+## Error Responses
+
+Security-sensitive failures should be specific enough for the legitimate user to
+act, but not leak secrets.
+
+Expected examples:
+
+- invalid session: `401 UNAUTHENTICATED`
+- non-admin: `403 ADMIN_REQUIRED`
+- invalid login: `401 INVALID_CREDENTIALS`
+- missing bootstrap secret: `503 BOOTSTRAP_TOKEN_MISSING`
+- quota exhausted: `402 QUOTA_EXHAUSTED`
+- invalid PaddleOCR provider token: stable server-side error message without the
+  token value
+
+## Tests To Add For Security Changes
+
+- password hashing and verification
+- session token hashing and lookup
+- bootstrap first-admin guard
+- admin-only user creation/update
+- job ownership checks
+- quota ledger reserve/consume/refund math
+- above-limit quota rejection
+- PaddleOCR `401` mapping
+
+## Do Not Use
+
+- Do not add Better Auth or OAuth flows without a migration task.
+- Do not store raw tokens in D1.
+- Do not allow query-string auth tokens.
+- Do not expose object keys or provider IDs as proof of authorization.

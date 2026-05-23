@@ -21,9 +21,9 @@ the rest conversationally.
 
 ## Status (update the checkboxes as you complete each item)
 
-- [ ] Fill backend guidelines
-- [ ] Fill frontend guidelines
-- [ ] Add code examples
+- [x] Fill backend guidelines
+- [x] Fill frontend guidelines
+- [x] Add code examples
 
 ---
 
@@ -34,11 +34,15 @@ the rest conversationally.
 
 | File | What to document |
 |------|------------------|
-| `.trellis/spec/backend/directory-structure.md` | Where different file types go (routes, services, utils) |
-| `.trellis/spec/backend/database-guidelines.md` | ORM, migrations, query patterns, naming conventions |
-| `.trellis/spec/backend/error-handling.md` | How errors are caught, logged, and returned |
-| `.trellis/spec/backend/logging-guidelines.md` | Log levels, format, what to log |
-| `.trellis/spec/backend/quality-guidelines.md` | Code review standards, testing requirements |
+| `.trellis/spec/backend/api-module.md` | Next.js API route structure and service boundaries |
+| `.trellis/spec/backend/api-patterns.md` | Route handler, upload, auth, and PaddleOCR patterns |
+| `.trellis/spec/backend/database.md` | D1, SQLite fallback, schema, query, and quota ledger conventions |
+| `.trellis/spec/backend/environment.md` | OpenNext/Cloudflare bindings, variables, secrets, and deploy checks |
+| `.trellis/spec/backend/error-logging.md` | `AppError`, `jsonError`, provider failures, and secret-safe logging |
+| `.trellis/spec/backend/security.md` | First-party auth, admin-only users, quotas, and token handling |
+| `.trellis/spec/backend/storage.md` | R2 object keys, upload flow, artifact access, and quota boundaries |
+| `.trellis/spec/backend/type-safety.md` | Project types, manual validation, and provider payload parsing |
+| `.trellis/spec/backend/quality.md` | Review standards and required checks |
 
 
 ### Frontend guidelines
@@ -46,11 +50,11 @@ the rest conversationally.
 | File | What to document |
 |------|------------------|
 | `.trellis/spec/frontend/directory-structure.md` | Component/page/hook organization |
-| `.trellis/spec/frontend/component-guidelines.md` | Component patterns, props conventions |
-| `.trellis/spec/frontend/hook-guidelines.md` | Custom hook naming, patterns |
-| `.trellis/spec/frontend/state-management.md` | State library, patterns, what goes where |
+| `.trellis/spec/frontend/components.md` | Component patterns, UI primitives, evidence text, admin forms |
+| `.trellis/spec/frontend/hooks.md` | Local async state, polling, and hook extraction |
+| `.trellis/spec/frontend/authentication.md` | First-party cookie auth and frontend integration |
 | `.trellis/spec/frontend/type-safety.md` | TypeScript conventions, type organization |
-| `.trellis/spec/frontend/quality-guidelines.md` | Linting, testing, accessibility |
+| `.trellis/spec/frontend/quality.md` | Linting, testing, accessibility, async UX |
 
 
 ### Thinking guides (already populated)

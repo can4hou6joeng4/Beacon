@@ -2,6 +2,11 @@
 
 > **Purpose**: Design pattern for OAuth 2.1 authorization with resource selection (e.g., workspace, organization, project)
 
+> **Project note**: the current PDF audit app does not use OAuth. Normal access
+> is first-party HttpOnly cookie auth documented in
+> `../frontend/authentication.md` and `../backend/security.md`. Use this guide
+> only if a future task explicitly adds OAuth.
+
 ---
 
 ## Overview

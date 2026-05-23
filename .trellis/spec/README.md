@@ -1,19 +1,21 @@
-# Cloudflare Workers Full-Stack Development Guidelines
+# PDF Certificate Expiry Checker Development Guidelines
 
-Production development guidelines for full-stack Cloudflare Workers applications with Hono framework, Drizzle ORM, and Turso database.
+Production development guidelines for the Next.js/OpenNext Cloudflare audit
+application.
 
 ## Structure
 
 ### [Backend](./backend/index.md)
 
-Cloudflare Workers + Hono + Drizzle ORM backend development patterns:
+Next.js App Router API routes, Cloudflare D1/R2, PaddleOCR, auth, and quota
+patterns:
 
 - [API Module](./backend/api-module.md)
 - [API Patterns](./backend/api-patterns.md)
 - [Database](./backend/database.md)
 - [Environment](./backend/environment.md)
 - [Error & Logging](./backend/error-logging.md)
-- [Hono Framework](./backend/hono-framework.md)
+- [Hono Framework](./backend/hono-framework.md) (legacy template note only)
 - [Quality Checklist](./backend/quality.md)
 - [Security](./backend/security.md)
 - [Storage](./backend/storage.md)
@@ -21,7 +23,8 @@ Cloudflare Workers + Hono + Drizzle ORM backend development patterns:
 
 ### [Frontend](./frontend/index.md)
 
-React Router v7 + Vite + TailwindCSS frontend development patterns:
+Next.js 16 App Router + React 19 + Tailwind CSS v4 + shadcn/ui frontend
+patterns:
 
 - [Authentication](./frontend/authentication.md)
 - [Components](./frontend/components.md)
@@ -59,19 +62,21 @@ Common issues and solutions for Cloudflare Workers applications:
 
 ## Tech Stack
 
-- **Runtime**: Cloudflare Workers (Wrangler v4+)
-- **Backend**: Hono, Drizzle ORM, Turso (libSQL/SQLite)
-- **Frontend**: React Router v7, Vite, TailwindCSS, shadcn/ui
-- **Auth**: Better Auth
-- **Storage**: Cloudflare KV, R2
-- **Build**: Vite + @cloudflare/vite-plugin
+- **Runtime**: Cloudflare Workers through OpenNext
+- **Backend**: Next.js 16 App Router API routes
+- **Database**: Cloudflare D1, with SQLite fallback for local/test code paths
+- **Frontend**: React 19, Tailwind CSS v4, shadcn/ui primitives
+- **Auth**: first-party HttpOnly cookie sessions
+- **Storage**: Cloudflare R2
+- **OCR Provider**: PaddleOCR async API
+- **Build**: Next.js + `@opennextjs/cloudflare` + Wrangler v4
 - **Language**: TypeScript throughout
 
 ## Usage
 
 These guidelines can be used as:
 
-1. **New Project Template** - Copy the entire structure for new Cloudflare Workers projects
-2. **Reference Documentation** - Consult specific guides when implementing features
-3. **Code Review Checklist** - Verify implementations against established patterns
-4. **Onboarding Material** - Help new developers understand project conventions
+1. **Reference Documentation** - Consult specific guides when implementing features
+2. **Code Review Checklist** - Verify implementations against established patterns
+3. **Onboarding Material** - Help new developers understand project conventions
+4. **Trellis Context** - Future tasks should load these specs instead of generic templates

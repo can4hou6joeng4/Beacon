@@ -1,297 +1,104 @@
-# Error Handling & Logging
+# Error Handling And Logging
 
-> Error handling patterns and logging guidelines.
-
----
-
-## Error Handling
-
-### HTTPException Pattern
-
-Use Hono's `HTTPException` for API errors:
-
-```typescript
-import { HTTPException } from "hono/http-exception";
-
-// Throw HTTP exceptions
-app.get("/protected", async (c) => {
-  const user = await getUser(id);
-  if (!user) {
-    throw new HTTPException(404, { message: "User not found" });
-  }
-
-  if (!hasPermission(user)) {
-    throw new HTTPException(403, { message: "Access denied" });
-  }
-
-  return c.json({ data: user });
-});
-```
-
-### Global Error Handler
-
-```typescript
-// Global error handler
-app.onError((err, c) => {
-  const logger = c.get("logger");
-
-  if (err instanceof HTTPException) {
-    logger.warn("http_exception", {
-      status: err.status,
-      message: err.message,
-    });
-    return c.json({ error: err.message }, err.status);
-  }
-
-  if (err instanceof z.ZodError) {
-    logger.warn("validation_error", { issues: err.issues });
-    return c.json(
-      {
-        error: "Validation failed",
-        details: err.issues,
-      },
-      400,
-    );
-  }
-
-  logger.error("unhandled_error", { error: err });
-  return c.json({ error: "Internal Server Error" }, 500);
-});
-
-// 404 handler
-app.notFound((c) => {
-  return c.json({ error: "Not Found" }, 404);
-});
-```
-
-### Error Response Format
-
-Consistent error response structure:
-
-```typescript
-// Single error
-{
-  "success": false,
-  "error": "User not found",
-  "code": "NOT_FOUND"
-}
-
-// Validation errors
-{
-  "success": false,
-  "error": "Validation failed",
-  "details": [
-    { "path": ["email"], "message": "Invalid email format" }
-  ]
-}
-```
+> Error and logging conventions for Next.js API routes on OpenNext Cloudflare.
 
 ---
 
-## Logging Guidelines
+## Error Model
 
-### Overview
+Use `AppError` for expected application failures:
 
-Use a structured logging system optimized for Cloudflare Workers. All logs are output as JSON to `console.log`, which can then be:
-
-- Viewed in real-time via `wrangler tail`
-- Pushed to external log services via Cloudflare Logpush (Datadog, Logtail, etc.)
-
-### Logging Architecture
-
-```
-src/lib/logger.ts              - Logger utilities
-src/middleware/request-context.ts - Request context middleware
-src/types.ts                   - Shared types (includes logger in Variables)
+```ts
+throw new AppError("当前账号额度不足，请联系管理员调整额度", {
+  status: 402,
+  code: "QUOTA_EXHAUSTED",
+})
 ```
 
-### Core Components
+Reference files:
 
-#### 1. Global Logger (No Request Context)
+- `web/src/lib/app-error.ts`
+- `web/src/lib/api-response.ts`
 
-Use for application startup, scheduled jobs, or errors outside request context:
+Route handlers should catch unknown errors and delegate to `jsonError`:
 
-```typescript
-import { logger } from "../lib/logger";
+```ts
+import { NextResponse } from "next/server"
+import { jsonError } from "@/lib/api-response"
 
-// Global logging (no requestId)
-logger.info("Application started");
-logger.error("Scheduled job failed", error);
-```
-
-#### 2. Request Logger (With Context)
-
-Use within request handlers. Automatically includes requestId, method, path:
-
-```typescript
-import type { MiddlewareHandler } from "hono";
-import type { AppEnv } from "../types";
-
-const myMiddleware = (): MiddlewareHandler<AppEnv> => {
-  return async (c, next) => {
-    const logger = c.get("logger"); // RequestLogger instance
-
-    logger.info("Processing request", { customField: "value" });
-
-    // Update context (e.g., after authentication)
-    logger.setContext({ userId: user.id });
-
-    logger.warn("Rate limit approaching", { remaining: 5 });
-    logger.error("Database connection failed", error);
-
-    await next();
-  };
-};
-```
-
-### Log Levels
-
-| Level   | Use Case                                                        |
-| ------- | --------------------------------------------------------------- |
-| `debug` | Development-only details, verbose tracing                       |
-| `info`  | Normal operations, business events (user login, sync completed) |
-| `warn`  | Potential issues, degraded performance, rate limits             |
-| `error` | Errors that need attention, failed operations                   |
-
-### Log Output Format
-
-All logs are structured JSON:
-
-```json
-{
-  "timestamp": "2025-12-11T12:00:00.000Z",
-  "level": "info",
-  "message": "session_authenticated",
-  "requestId": "abc123",
-  "method": "POST",
-  "path": "/api/workspaces",
-  "userId": "user_456",
-  "sessionId": "sess_789"
-}
-```
-
-### Standard Log Messages
-
-Use consistent message names for common operations:
-
-| Message                 | Level | When                                          |
-| ----------------------- | ----- | --------------------------------------------- |
-| `request_start`         | info  | Request begins (auto-logged by middleware)    |
-| `request_end`           | info  | Request completes (auto-logged by middleware) |
-| `request_error`         | error | Unhandled error (auto-logged by middleware)   |
-| `session_authenticated` | info  | User authenticated successfully               |
-| `unauthorized_access`   | warn  | Auth failed (401 returned)                    |
-| `forbidden_access`      | warn  | Permission denied (403 returned)              |
-| `validation_error`      | warn  | Input validation failed                       |
-| `db_query_slow`         | warn  | Query took > threshold                        |
-
-### Request Context Middleware
-
-The `requestContext()` middleware is mounted first and provides:
-
-```typescript
-// src/index.ts
-import { requestContext } from "./middleware/request-context";
-
-app.use("*", requestContext()); // First middleware!
-```
-
-What it does:
-
-1. Generates unique `requestId` using `crypto.randomUUID()`
-2. Creates `RequestLogger` with request context (method, path)
-3. Sets `X-Request-Id` response header
-4. Logs `request_start` automatically
-5. Logs `request_end` or `request_error` automatically
-
-### Accessing Logger and RequestId
-
-```typescript
-// In any route handler or middleware
-app.get("/api/example", async (c) => {
-  const logger = c.get("logger"); // RequestLogger
-  const requestId = c.get("requestId"); // string
-
-  logger.info("Processing example", { step: 1 });
-
-  return c.json({ requestId }); // Can return to client for tracing
-});
-```
-
-### Best Practices
-
-**DO:**
-
-- Use `c.get('logger')` in all request handlers
-- Call `logger.setContext({ userId })` after authentication
-- Include relevant metadata in logs (IDs, counts, durations)
-- Use consistent message names (snake_case)
-- Log at appropriate levels
-
-**DON'T:**
-
-- Use `console.log` directly (no structure, no context)
-- Log sensitive data (passwords, tokens, full credit cards)
-- Log entire request/response bodies (too verbose, may contain PII)
-- Create new logger instances (use the one from context)
-
-### Example Logger Implementation
-
-```typescript
-// src/lib/logger.ts
-export type LogLevel = "debug" | "info" | "warn" | "error";
-
-export interface LogContext {
-  requestId?: string;
-  method?: string;
-  path?: string;
-  userId?: string;
-  [key: string]: unknown;
-}
-
-export class RequestLogger {
-  private context: LogContext;
-
-  constructor(context: LogContext = {}) {
-    this.context = context;
-  }
-
-  setContext(ctx: Partial<LogContext>): void {
-    this.context = { ...this.context, ...ctx };
-  }
-
-  private log(
-    level: LogLevel,
-    message: string,
-    data?: Record<string, unknown>,
-  ): void {
-    const entry = {
-      timestamp: new Date().toISOString(),
-      level,
-      message,
-      ...this.context,
-      ...data,
-    };
-    console.log(JSON.stringify(entry));
-  }
-
-  debug(message: string, data?: Record<string, unknown>): void {
-    this.log("debug", message, data);
-  }
-
-  info(message: string, data?: Record<string, unknown>): void {
-    this.log("info", message, data);
-  }
-
-  warn(message: string, data?: Record<string, unknown>): void {
-    this.log("warn", message, data);
-  }
-
-  error(message: string, data?: Record<string, unknown>): void {
-    this.log("error", message, data);
+export async function POST(request: Request) {
+  try {
+    // validate, authorize, mutate
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    return jsonError(error, "操作失败")
   }
 }
-
-// Global logger for non-request contexts
-export const logger = new RequestLogger();
 ```
+
+`jsonError` returns:
+
+- `{ error, code }` with the `AppError.status` for known application errors.
+- `{ error }` with status `500` for unexpected errors.
+
+## Expected Status Codes
+
+| Status | Use case |
+| --- | --- |
+| `400` | Missing/invalid request body, file type, object key, or quota value |
+| `401` | Missing/invalid session, invalid login, invalid bootstrap token |
+| `402` | Quota exhausted |
+| `403` | Authenticated user is not admin |
+| `404` | Job/user/object not found |
+| `409` | Duplicate user, stale upload state, size mismatch, unsupported mode |
+| `410` | Retired local upload/OCR endpoints |
+| `503` | Required bootstrap/provider configuration missing |
+
+Keep messages user-readable because the current UI displays `payload.error`
+directly.
+
+## Route Pattern
+
+1. Authenticate first when the route is protected.
+2. Parse and validate request JSON/form data.
+3. Validate quota before starting provider/storage work.
+4. Perform side effects.
+5. Return a small typed JSON payload.
+6. Catch with `jsonError`.
+
+Do not leak raw provider payloads, tokens, signed URLs, or full object bodies in
+error responses.
+
+## Logging
+
+There is no project-wide structured logger yet. Until one is introduced:
+
+- Use route responses and stable `AppError.code` values as the primary error
+  contract.
+- Avoid `console.log` debug noise in production code.
+- `console.error` is acceptable for unexpected server-side failures only when it
+  does not include secrets or large OCR/PDF payloads.
+- Never log passwords, raw session tokens, PaddleOCR tokens, bootstrap tokens,
+  R2 secret keys, presigned URLs, or full OCR result blobs.
+
+If a future task adds structured logging, place the helper under
+`web/src/lib/`, keep log records JSON-serializable, and add request/job/user IDs
+without logging sensitive content.
+
+## Provider Error Handling
+
+PaddleOCR errors should be mapped to user-actionable messages when possible.
+Provider `401` means the configured PaddleOCR token is invalid, expired, or lacks
+access; return an authenticated server error message without exposing the token.
+
+R2/object-store errors should preserve the operation context in the fallback
+message, such as upload session creation, object upload, artifact download, or
+unsafe object key.
+
+## Do Not Use
+
+- Do not use Hono `HTTPException` in this Next.js app.
+- Do not add a global Hono error handler.
+- Do not return stack traces to the browser.
+- Do not swallow quota ledger failures after provider work has started; refund
+  or surface the failure according to `web/src/lib/quota.ts` patterns.
