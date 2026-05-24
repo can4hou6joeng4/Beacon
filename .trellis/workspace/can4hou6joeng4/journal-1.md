@@ -303,3 +303,36 @@ Moved the task pipeline from the sidebar into a centered main-content module, co
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: Optimize Cloudflare audit hot path
+
+**Date**: 2026-05-24
+**Task**: Optimize Cloudflare audit hot path
+**Branch**: `main`
+
+### Summary
+
+Streamed Worker PDF uploads into R2, added Server-Timing instrumentation for Cloudflare audit hot paths, added D1/SQLite history indexes, updated deployment verification notes for Clash Verge TUN DNS caveat, and captured the new contracts in Trellis specs.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b23bea2` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
