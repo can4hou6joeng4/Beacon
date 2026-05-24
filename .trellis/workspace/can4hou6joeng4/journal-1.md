@@ -151,7 +151,11 @@ Implemented Cloudflare R2 binding upload route, Worker-side PaddleOCR multipart 
 
 ### Main Changes
 
-(Add details)
+- Added `requireAuditJobForUser(...)` and `assertJobObjectKeyMatches(...)` in `web/src/lib/audit-isolation.ts`.
+- Updated cloud upload file, PaddleOCR submission, and reanalysis routes to share the explicit job ownership boundary.
+- Added regression tests for normal-user isolation, admin cross-user exception, object-key mismatch rejection, and OCR quota owner scoping.
+- Updated backend security spec with the durable job-route authorization rule.
+- Pushed `main` and deployed Cloudflare Worker version `9acd1441-7cf4-472f-a275-4e0f8101e78e`.
 
 ### Git Commits
 
@@ -161,7 +165,12 @@ Implemented Cloudflare R2 binding upload route, Worker-side PaddleOCR multipart 
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] `npm run test -- audit-isolation`
+- [OK] `npm run test`
+- [OK] `npm run lint`
+- [OK] `npm run build`
+- [OK] `npm run cf:build`
+- [OK] `curl -I https://pdf-audit.bobochang.cn` returned HTTP/2 200 after deployment.
 
 ### Status
 
@@ -324,6 +333,39 @@ Streamed Worker PDF uploads into R2, added Server-Timing instrumentation for Clo
 | Hash | Message |
 |------|---------|
 | `b23bea2` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 10: Account data isolation regression coverage
+
+**Date**: 2026-05-24
+**Task**: Account data isolation regression coverage
+**Branch**: `main`
+
+### Summary
+
+Added shared audit job authorization helpers, regression coverage for account data isolation and quota ownership, updated high-risk audit routes, verified quality gates, pushed and deployed to Cloudflare.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bf1492e` | (see git log) |
 
 ### Testing
 
