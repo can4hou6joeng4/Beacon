@@ -109,7 +109,11 @@ Implemented D1-backed account authentication, admin-only user management, upload
 
 ### Main Changes
 
-(Add details)
+- Moved the task pipeline card out of the left sidebar into the main audit content area.
+- Added a centered, max-width pipeline module near the top of the right-side page.
+- Reworked `ProgressSteps` into a responsive horizontal stepper with clear waiting, active, done, and failed states.
+- Added lightweight CSS animation for the active step and running progress highlight.
+- Updated frontend component specs to preserve the new main-content pipeline convention.
 
 ### Git Commits
 
@@ -119,7 +123,12 @@ Implemented D1-backed account authentication, admin-only user management, upload
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] `npm run test`
+- [OK] `npm run lint`
+- [OK] `npm run build`
+- [OK] `npm run cf:build`
+- [OK] `git diff --check`
+- [OK] Local dev server returned `HTTP/1.1 200 OK` for `http://localhost:3000`
 
 ### Status
 
@@ -249,6 +258,39 @@ Moved admin user management from the sidebar into an admin-only dialog, improved
 | Hash | Message |
 |------|---------|
 | `06af1e8` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 8: Centered animated task pipeline
+
+**Date**: 2026-05-24
+**Task**: Centered animated task pipeline
+**Branch**: `codex/centered-pipeline-animation`
+
+### Summary
+
+Moved the task pipeline from the sidebar into a centered main-content module, converted the progress steps into a responsive horizontal animated stepper, updated frontend component specs, and verified test, lint, Next build, OpenNext Cloudflare build, diff check, and local HTTP reachability.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9b7a05c` | (see git log) |
 
 ### Testing
 
