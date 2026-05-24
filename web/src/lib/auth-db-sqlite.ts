@@ -361,7 +361,11 @@ function migrate(db: Database.Database): void {
     addColumnIfMissing(db, "jobs", "user_id", "TEXT")
     addColumnIfMissing(db, "jobs", "upload_bytes", "INTEGER NOT NULL DEFAULT 0")
     addColumnIfMissing(db, "jobs", "ocr_pages_used", "INTEGER NOT NULL DEFAULT 0")
-    db.exec("CREATE INDEX IF NOT EXISTS idx_jobs_user_id ON jobs(user_id)")
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_jobs_user_id ON jobs(user_id);
+      CREATE INDEX IF NOT EXISTS idx_jobs_user_created_id ON jobs(user_id, created_at DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_jobs_created_id ON jobs(created_at DESC, id DESC);
+    `)
   }
   if (tableExists(db, "users")) {
     addColumnIfMissing(db, "users", "username", "TEXT")

@@ -6,14 +6,16 @@ import { AppError } from "@/lib/app-error"
 import {
   assertObjectStoreConfigured,
   createCloudObjectStoreConfig,
-  putCloudObject,
+  putCloudObjectStream,
 } from "@/lib/cloud-object-store"
 import { refundQuotaOnce } from "@/lib/quota"
+import { createServerTimingTracker, responseWithServerTiming } from "@/lib/server-timing"
 
 export const runtime = "nodejs"
 
 export async function PUT(request: Request, { params }: { params: Promise<{ jobId: string }> }) {
   let refundTarget: { userId: string; jobId: string; amount: number } | null = null
+  const timing = createServerTimingTracker()
   try {
     const context = await requireAuth(request)
     const { jobId } = await params
@@ -46,30 +48,35 @@ export async function PUT(request: Request, { params }: { params: Promise<{ jobI
       throw new AppError("请上传 PDF 文件", { status: 400, code: "INVALID_UPLOAD_TYPE" })
     }
 
-    const blob = await request.blob()
-    if (blob.size < 1) {
+    const contentLength = parseContentLength(request.headers.get("content-length"))
+    if (contentLength !== null && contentLength < 1) {
       throw new AppError("上传文件为空", { status: 400, code: "EMPTY_UPLOAD" })
     }
-    if (blob.size > 100 * 1024 * 1024) {
+    if (contentLength !== null && contentLength > 100 * 1024 * 1024) {
       throw new AppError("PDF 文件超过当前 100MB 上传限制", { status: 400, code: "UPLOAD_TOO_LARGE" })
     }
-    if (blob.size !== job.uploadBytes) {
+    if (contentLength !== null && contentLength !== job.uploadBytes) {
       throw new AppError("上传文件大小与会话记录不一致，请重新创建上传任务", { status: 409, code: "UPLOAD_SIZE_MISMATCH" })
     }
+    if (!request.body) {
+      throw new AppError("上传请求缺少文件内容", { status: 400, code: "EMPTY_UPLOAD" })
+    }
+    const uploadBody = request.body
+    const objectKey = job.objectKey
 
-    await putCloudObject({
-      objectKey: job.objectKey,
-      content: blob,
+    await timing.measure("r2_put", () => putCloudObjectStream({
+      objectKey,
+      stream: uploadBody,
       contentType: "application/pdf",
       config,
-    })
-    const updated = await db.updateFromStatus(job.id, {
+    }), "stream upload to r2")
+    const updated = await timing.measure("d1_status", () => db.updateFromStatus(job.id, {
       status: "queued",
       message: "PDF 已上传，等待提交 PaddleOCR",
-    })
+    }), "upload status update")
     refundTarget = null
 
-    return NextResponse.json({ job: updated ?? job, objectKey: job.objectKey, size: blob.size })
+    return responseWithServerTiming(NextResponse.json({ job: updated ?? job, objectKey, size: contentLength ?? job.uploadBytes }), timing)
   } catch (error) {
     if (refundTarget) {
       const db = await getAuditDb().catch(() => null)
@@ -89,4 +96,10 @@ export async function PUT(request: Request, { params }: { params: Promise<{ jobI
 
 function normalizeContentType(value: string | null): string {
   return (value || "application/pdf").split(";")[0]?.trim().toLowerCase() || "application/pdf"
+}
+
+function parseContentLength(value: string | null): number | null {
+  if (!value) return null
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null
 }

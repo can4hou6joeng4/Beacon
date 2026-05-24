@@ -10,10 +10,12 @@ import {
   validateCloudUploadInput,
 } from "@/lib/cloud-object-store"
 import { ensureQuotaAvailable, reserveUploadQuota } from "@/lib/quota"
+import { createServerTimingTracker, responseWithServerTiming } from "@/lib/server-timing"
 
 export const runtime = "nodejs"
 
 export async function POST(request: Request) {
+  const timing = createServerTimingTracker()
   try {
     const context = await requireAuth(request)
     const payload = (await request.json().catch(() => null)) as { filename?: string; size?: number; contentType?: string; cutoff?: string } | null
@@ -23,9 +25,9 @@ export async function POST(request: Request) {
     assertObjectStoreConfigured(config)
     const jobId = crypto.randomUUID()
     const objectKey = generateAuditObjectKey({ filename: input.filename, prefix: config.prefix, jobId })
-    await ensureQuotaAvailable(context, "upload_bytes", input.size)
-    const db = await getAuditDb()
-    const job = await db.createJob({
+    await timing.measure("quota_check", () => ensureQuotaAvailable(context, "upload_bytes", input.size), "upload quota check")
+    const db = await timing.measure("db_init", () => getAuditDb(), "audit db")
+    const job = await timing.measure("d1_create_job", () => db.createJob({
       id: jobId,
       filename: input.filename,
       cutoff,
@@ -33,8 +35,8 @@ export async function POST(request: Request) {
       runtime: "paddleocr",
       objectKey,
       uploadBytes: input.size,
-    })
-    await reserveUploadQuota({ context, jobId: job.id, bytes: input.size })
+    }), "create job")
+    await timing.measure("quota_reserve", () => reserveUploadQuota({ context, jobId: job.id, bytes: input.size }), "reserve upload quota")
     const upload = config.driver === "r2-binding"
       ? {
           url: `/api/audit/cloud-uploads/${encodeURIComponent(job.id)}/file`,
@@ -42,14 +44,14 @@ export async function POST(request: Request) {
         }
       : createPresignedPutUrl({ objectKey, contentType: input.contentType, config })
 
-    return NextResponse.json({
+    return responseWithServerTiming(NextResponse.json({
       jobId: job.id,
       objectKey,
       uploadUrl: upload.url,
       uploadExpiresAt: upload.expiresAt,
       method: "PUT",
       headers: { "Content-Type": input.contentType },
-    })
+    }), timing)
   } catch (error) {
     return jsonError(error, "创建云端上传会话失败")
   }

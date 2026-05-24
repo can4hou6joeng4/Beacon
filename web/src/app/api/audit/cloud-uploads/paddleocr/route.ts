@@ -12,12 +12,14 @@ import {
 import { submitPaddleOcrFileJob, submitPaddleOcrUrlJob } from "@/lib/paddleocr"
 import { createPaddleOcrRuntimeConfig } from "@/lib/paddleocr-runtime"
 import { consumeOcrJobQuota, refundQuotaOnce } from "@/lib/quota"
+import { createServerTimingTracker, responseWithServerTiming } from "@/lib/server-timing"
 
 export const runtime = "nodejs"
 
 export async function POST(request: Request) {
   let quotaRefund: { userId: string; jobId: string } | null = null
   let failureJobId: string | null = null
+  const timing = createServerTimingTracker()
   try {
     const context = await requireAuth(request)
     const payload = (await request.json().catch(() => null)) as { jobId?: string; objectKey?: string } | null
@@ -27,46 +29,48 @@ export async function POST(request: Request) {
     if (!payload.objectKey) {
       return NextResponse.json({ error: "缺少对象存储路径" }, { status: 400 })
     }
+    const jobId = payload.jobId
+    const objectKey = payload.objectKey
 
     const config = createCloudObjectStoreConfig()
     assertObjectStoreConfigured(config)
-    assertSafeObjectKey(payload.objectKey, config.prefix)
-    const db = await getAuditDb()
-    const job = await db.getJobForUser(payload.jobId, context.user.id, context.user.role)
-    if (!job || job.objectKey !== payload.objectKey) {
+    assertSafeObjectKey(objectKey, config.prefix)
+    const db = await timing.measure("db_init", () => getAuditDb(), "audit db")
+    const job = await timing.measure("d1_get_job", () => db.getJobForUser(jobId, context.user.id, context.user.role), "load job")
+    if (!job || job.objectKey !== objectKey) {
       return NextResponse.json({ error: "任务不存在或对象路径不匹配" }, { status: 404 })
     }
     failureJobId = job.id
     if (job.providerJobId) {
-      return NextResponse.json({ job, objectKey: payload.objectKey, providerJobId: job.providerJobId })
+      return responseWithServerTiming(NextResponse.json({ job, objectKey, providerJobId: job.providerJobId }), timing)
     }
 
     const quotaUserId = job.userId ?? context.user.id
-    await consumeOcrJobQuota({ context, jobId: job.id, userId: quotaUserId })
+    await timing.measure("quota_consume_job", () => consumeOcrJobQuota({ context, jobId: job.id, userId: quotaUserId }), "consume ocr job quota")
     quotaRefund = { userId: quotaUserId, jobId: job.id }
-    const paddleOcrConfig = await createPaddleOcrRuntimeConfig()
-    const submitted = config.driver === "r2-binding"
-      ? await submitPaddleOcrFileJob({
+    const paddleOcrConfig = await timing.measure("paddle_config", () => createPaddleOcrRuntimeConfig(), "provider config")
+    const submitted = await timing.measure("paddle_submit", async () => config.driver === "r2-binding"
+      ? submitPaddleOcrFileJob({
           filename: job.filename,
           config: paddleOcrConfig,
           file: (await fetchCloudObjectBlob({
-            objectKey: payload.objectKey,
+            objectKey,
             config,
             fallbackContentType: "application/pdf",
           })).blob,
         })
-      : await submitPaddleOcrUrlJob({
+      : submitPaddleOcrUrlJob({
           config: paddleOcrConfig,
-          fileUrl: createPresignedGetUrl({ objectKey: payload.objectKey, config }).url,
-        })
-    const updated = await db.attachProviderJob(job.id, submitted.providerJobId)
+          fileUrl: createPresignedGetUrl({ objectKey, config }).url,
+        }), "submit provider job")
+    const updated = await timing.measure("d1_provider_job", () => db.attachProviderJob(job.id, submitted.providerJobId), "attach provider job")
     quotaRefund = null
 
-    return NextResponse.json({
+    return responseWithServerTiming(NextResponse.json({
       job: updated,
-      objectKey: payload.objectKey,
+      objectKey,
       ...submitted,
-    })
+    }), timing)
   } catch (error) {
     if (quotaRefund) {
       await refundQuotaOnce({ ...quotaRefund, resource: "ocr_jobs", amount: 1, reason: "paddleocr_submission_failed" }).catch(() => undefined)

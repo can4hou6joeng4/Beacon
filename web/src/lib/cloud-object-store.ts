@@ -193,6 +193,24 @@ export async function putCloudObject(input: {
   }
 }
 
+export async function putCloudObjectStream(input: {
+  objectKey: string
+  stream: ReadableStream
+  contentType: string
+  config: CloudObjectStoreConfig
+  fetcher?: typeof fetch
+  bucket?: R2BucketLike
+}): Promise<void> {
+  await putCloudObject({
+    objectKey: input.objectKey,
+    content: input.stream,
+    contentType: input.contentType,
+    config: input.config,
+    fetcher: input.fetcher,
+    bucket: input.bucket,
+  })
+}
+
 export async function fetchCloudObjectText(input: {
   objectKey: string
   config: CloudObjectStoreConfig

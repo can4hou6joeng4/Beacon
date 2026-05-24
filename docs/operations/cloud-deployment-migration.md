@@ -160,6 +160,23 @@ npm run cf:build
 npm run cf:deploy
 ```
 
+### Performance verification
+
+The cloud upload and PaddleOCR status endpoints emit `Server-Timing` headers for
+the hot execution path. Use them after deployment to compare:
+
+- upload session creation: `quota_check`, `d1_create_job`, `quota_reserve`
+- Worker-to-R2 upload: `r2_put`, `d1_status`
+- PaddleOCR submission: `d1_get_job`, `quota_consume_job`, `paddle_submit`,
+  `d1_provider_job`
+- status/finalization: `paddle_status`, `r2_result_check`,
+  `paddle_result_fetch`, `analyze_result`, `r2_artifacts_put`, `d1_result`
+
+On this development machine, Clash Verge TUN mode can affect local DNS answers.
+Do not treat local `dig` output alone as production routing evidence. Prefer
+HTTPS response headers, Cloudflare dashboard/API evidence, or Cloudflare DoH
+queries when checking whether `pdf-audit.bobochang.cn` is routed to the Worker.
+
 Create a signed upload URL:
 
 ```bash

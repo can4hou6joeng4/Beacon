@@ -32,6 +32,10 @@ Rules:
 - Import server helpers through `@/lib/...`.
 - Catch unknown errors with `jsonError`.
 - Return compact JSON payloads.
+- Hot path API routes may add `Server-Timing` headers through
+  `createServerTimingTracker()` and `responseWithServerTiming(...)`. Timing
+  names must describe internal stages without exposing secrets, signed URLs, or
+  raw provider payloads.
 
 ## Body Parsing
 

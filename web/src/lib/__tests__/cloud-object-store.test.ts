@@ -8,6 +8,7 @@ import {
   siblingObjectKey,
   generateAuditObjectKey,
   putCloudObject,
+  putCloudObjectStream,
   type R2BucketLike,
   validateCloudUploadInput,
 } from "../cloud-object-store"
@@ -127,5 +128,37 @@ describe("R2 binding helpers", () => {
       size: 9,
     })
     await expect(object.blob.text()).resolves.toBe("pdf-bytes")
+  })
+
+  it("writes upload streams through an injected R2 bucket without materializing a Blob first", async () => {
+    const config = createCloudObjectStoreConfig({
+      AUDIT_OBJECT_STORE_DRIVER: "r2-binding",
+      AUDIT_OBJECT_PREFIX: "jobs",
+    })
+    const writes: Array<{ key: string; value: unknown; contentType?: string }> = []
+    const bucket: R2BucketLike = {
+      async put(key, value, options) {
+        writes.push({ key, value, contentType: options?.httpMetadata?.contentType })
+      },
+      async get() {
+        return null
+      },
+    }
+    const stream = new Blob(["stream-pdf-bytes"], { type: "application/pdf" }).stream()
+
+    await putCloudObjectStream({
+      objectKey: "jobs/job-123/input.pdf",
+      stream,
+      contentType: "application/pdf",
+      config,
+      bucket,
+    })
+
+    expect(writes).toHaveLength(1)
+    expect(writes[0]).toMatchObject({
+      key: "jobs/job-123/input.pdf",
+      contentType: "application/pdf",
+    })
+    expect(writes[0]?.value).toBe(stream)
   })
 })

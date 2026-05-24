@@ -156,6 +156,10 @@ Rules:
 
 - Use deterministic ordering for list endpoints, usually `ORDER BY created_at
   DESC`.
+- User-scoped job history queries must have a matching compound index:
+  `idx_jobs_user_created_id ON jobs(user_id, created_at DESC, id DESC)`.
+- Global job history queries should keep `idx_jobs_created_id ON jobs(created_at
+  DESC, id DESC)` for deterministic list performance.
 - Keep row-to-domain mapping in small `map*` helpers.
 - Convert nullable numeric SQL fields with `Number(row?.field ?? 0)`.
 - Use ISO timestamps for persisted date strings.

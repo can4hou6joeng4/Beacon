@@ -53,6 +53,13 @@ Rules:
 6. Server fetches the R2 object as a Blob and submits it to PaddleOCR file mode.
 7. Server stores provider job ID/status in D1.
 
+For `r2-binding` production uploads, the Worker upload route should pass
+`request.body` to `putCloudObjectStream(...)` instead of calling
+`request.blob()`. This keeps large PDFs out of Worker heap during the upload
+phase. Validate `Content-Length` against the D1 upload session when present; if
+the header is absent, still require `request.body` and rely on the pre-created
+quota/session limit plus R2 write failure handling.
+
 Do not reintroduce local chunk upload for production. Retired local endpoints
 return `410`.
 
@@ -64,9 +71,75 @@ Use `validateCloudUploadInput(...)` and route-level checks:
 - content type should be `application/pdf` when available
 - file size must be positive
 - file size must not exceed the current 100MB app upload limit
-- uploaded Blob size must match the created upload session
+- uploaded `Content-Length`, when provided, must match the created upload
+  session
+- upload routes must reject missing request bodies before R2 writes
 
 Quota must be checked before expensive provider work.
+
+## Upload Hot Path Contract
+
+### 1. Scope / Trigger
+
+- Trigger: changing `POST /api/audit/cloud-uploads`, `PUT
+  /api/audit/cloud-uploads/[jobId]/file`, or R2 helper write behavior.
+
+### 2. Signatures
+
+- `putCloudObjectStream({ objectKey, stream, contentType, config, bucket? }) ->
+  Promise<void>`
+- `PUT /api/audit/cloud-uploads/{jobId}/file` accepts an authenticated PDF
+  request body and returns `{ job, objectKey, size }`.
+
+### 3. Contracts
+
+- `objectKey` must match the authenticated D1 job row.
+- `Content-Type` must be `application/pdf` or `application/octet-stream`.
+- `Content-Length`, if present, must be positive, within 100MB, and equal to
+  `jobs.upload_bytes`.
+- The route emits `Server-Timing` entries for `r2_put` and `d1_status`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Error |
+| --- | --- |
+| Missing job or wrong owner | `404 任务不存在` |
+| Complete/failed/provider-attached job | `409 当前任务状态不允许上传 PDF` |
+| Invalid content type | `400 INVALID_UPLOAD_TYPE` |
+| Empty body or zero length | `400 EMPTY_UPLOAD` |
+| Size exceeds 100MB | `400 UPLOAD_TOO_LARGE` |
+| Size mismatch with session | `409 UPLOAD_SIZE_MISMATCH` |
+
+### 5. Good/Base/Bad Cases
+
+- Good: browser sends `Content-Length` and route streams directly into R2.
+- Base: browser omits `Content-Length`; route still streams body and reports the
+  session size.
+- Bad: route calls `request.blob()` for production upload and buffers the full
+  PDF in Worker memory.
+
+### 6. Tests Required
+
+- `cloud-object-store.test.ts` covers `putCloudObjectStream(...)` forwarding the
+  stream to the R2 bucket.
+- Route behavior changes should cover size/type/session mismatch if a route test
+  harness is added.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+const blob = await request.blob()
+await putCloudObject({ objectKey, content: blob, contentType, config })
+```
+
+#### Correct
+
+```typescript
+if (!request.body) throw new AppError("上传请求缺少文件内容", { status: 400 })
+await putCloudObjectStream({ objectKey, stream: request.body, contentType, config })
+```
 
 ## R2 Free-Tier Boundary
 
