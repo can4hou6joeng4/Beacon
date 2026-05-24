@@ -1,7 +1,8 @@
 "use client"
 
-import { Archive, CheckCircle2, Clock3, FileClock, FolderOpen, Loader2, XCircle } from "lucide-react"
+import { Archive, CheckCircle2, Clock3, FileClock, FolderOpen, Loader2, RefreshCw, XCircle } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { cn } from "@/lib/utils"
 import type { AuditHistoryJob, AuditStatusValue } from "@/lib/audit-types"
@@ -41,66 +42,94 @@ function JobRow({
   job,
   active,
   loading,
+  reanalyzing,
   onOpen,
+  onReanalyze,
 }: {
   job: AuditHistoryJob
   active: boolean
   loading: boolean
+  reanalyzing: boolean
   onOpen: (job: AuditHistoryJob) => void
+  onReanalyze: (job: AuditHistoryJob) => void
 }) {
   const status = statusMeta(job.status)
   const StatusIcon = status.icon
+  const canOpen = Boolean(job.pythonJobId || job.providerJobId)
+  const canReanalyze = job.status === "complete" && job.runtime === "paddleocr" && Boolean(job.objectKey)
+  const busy = loading || reanalyzing
 
   return (
-    <button
-      type="button"
+    <article
       className={cn(
-        "w-full rounded-md border bg-background p-3 text-left transition hover:border-[#176b87]/50 hover:bg-[#f6fbfd] disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-muted/40",
+        "rounded-md border bg-background p-3 transition hover:border-[#176b87]/50 hover:bg-[#f6fbfd] dark:hover:bg-muted/40",
         active && "border-[#176b87] bg-[#eef7fa] shadow-sm dark:bg-cyan-950/30 dark:border-cyan-800/70",
+        busy && "opacity-75",
       )}
-      disabled={(!job.pythonJobId && !job.providerJobId) || loading}
-      onClick={() => onOpen(job)}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2">
-            <FolderOpen className="h-4 w-4 shrink-0 text-[#176b87]" />
-            <div className="truncate text-sm font-semibold">{job.filename}</div>
+      <button
+        type="button"
+        className="w-full rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed"
+        disabled={!canOpen || busy}
+        onClick={() => onOpen(job)}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <FolderOpen className="h-4 w-4 shrink-0 text-[#176b87]" />
+              <div className="truncate text-sm font-semibold">{job.filename}</div>
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">{formatDate(job.createdAt)} · 截止 {job.cutoff}</div>
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">{formatDate(job.createdAt)} · 截止 {job.cutoff}</div>
+          <Badge variant={status.badge} className="shrink-0">
+            {reanalyzing ? "分析中" : loading ? "读取中" : active ? "当前" : status.label}
+          </Badge>
         </div>
-        <Badge variant={status.badge} className="shrink-0">
-          {loading ? "读取中" : active ? "当前" : status.label}
-        </Badge>
-      </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-        <div className={cn("rounded-md border px-2 py-1.5", job.matches > 0 ? "border-destructive/35 bg-destructive/5 text-destructive" : "bg-muted/40")}>
-          <div className="font-semibold">{job.matches}</div>
-          <div className="text-muted-foreground">命中</div>
+        <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+          <div className={cn("rounded-md border px-2 py-1.5", job.matches > 0 ? "border-destructive/35 bg-destructive/5 text-destructive" : "bg-muted/40")}>
+            <div className="font-semibold">{job.matches}</div>
+            <div className="text-muted-foreground">命中</div>
+          </div>
+          <div className={cn("rounded-md border px-2 py-1.5", job.needsReview > 0 ? "border-[#176b87]/35 bg-[#eef7fa] text-[#176b87] dark:bg-cyan-950/30 dark:border-cyan-800/60" : "bg-muted/40")}>
+            <div className="font-semibold">{job.needsReview}</div>
+            <div className="text-muted-foreground">复核</div>
+          </div>
+          <div className="rounded-md border bg-muted/40 px-2 py-1.5">
+            <div className="font-semibold">{job.pagesOcr || job.ocrTotalPages || 0}</div>
+            <div className="text-muted-foreground">OCR 页</div>
+          </div>
         </div>
-        <div className={cn("rounded-md border px-2 py-1.5", job.needsReview > 0 ? "border-[#176b87]/35 bg-[#eef7fa] text-[#176b87] dark:bg-cyan-950/30 dark:border-cyan-800/60" : "bg-muted/40")}>
-          <div className="font-semibold">{job.needsReview}</div>
-          <div className="text-muted-foreground">复核</div>
-        </div>
-        <div className="rounded-md border bg-muted/40 px-2 py-1.5">
-          <div className="font-semibold">{job.pagesOcr || job.ocrTotalPages || 0}</div>
-          <div className="text-muted-foreground">OCR 页</div>
-        </div>
-      </div>
 
-      <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-        <StatusIcon className={cn("h-3.5 w-3.5", status.className, job.status === "running" && "animate-spin")} />
-        <span className="truncate">{job.message}</span>
-        {job.ocrErrorPages > 0 ? (
-          <>
-            <span>·</span>
-            <FileClock className="h-3.5 w-3.5 text-destructive" />
-            <span className="text-destructive">OCR 失败 {job.ocrErrorPages}</span>
-          </>
-        ) : null}
-      </div>
-    </button>
+        <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <StatusIcon className={cn("h-3.5 w-3.5", status.className, job.status === "running" && "animate-spin")} />
+          <span className="truncate">{job.message}</span>
+          {job.ocrErrorPages > 0 ? (
+            <>
+              <span>·</span>
+              <FileClock className="h-3.5 w-3.5 text-destructive" />
+              <span className="text-destructive">OCR 失败 {job.ocrErrorPages}</span>
+            </>
+          ) : null}
+        </div>
+      </button>
+
+      {canReanalyze ? (
+        <div className="mt-3 flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            disabled={busy}
+            onClick={() => onReanalyze(job)}
+          >
+            {reanalyzing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            {reanalyzing ? "重新分析中" : "重新分析"}
+          </Button>
+        </div>
+      ) : null}
+    </article>
   )
 }
 
@@ -109,15 +138,19 @@ export function HistoryPanel({
   jobs,
   activeJobId,
   loadingJobId,
+  reanalyzingJobId,
   onOpenChange,
   onOpen,
+  onReanalyze,
 }: {
   open: boolean
   jobs: AuditHistoryJob[]
   activeJobId: string | null
   loadingJobId: string | null
+  reanalyzingJobId: string | null
   onOpenChange: (open: boolean) => void
   onOpen: (job: AuditHistoryJob) => void
+  onReanalyze: (job: AuditHistoryJob) => void
 }) {
   const groups = groupJobs(jobs)
 
@@ -162,10 +195,12 @@ export function HistoryPanel({
                           job={job}
                           active={job.id === activeJobId}
                           loading={loadingJobId === job.id}
+                          reanalyzing={reanalyzingJobId === job.id}
                           onOpen={(selectedJob) => {
                             onOpen(selectedJob)
                             onOpenChange(false)
                           }}
+                          onReanalyze={onReanalyze}
                         />
                       ))}
                     </div>

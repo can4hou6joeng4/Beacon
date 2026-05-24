@@ -154,6 +154,7 @@ export function AuditCommandCenter({
   const [isSigningOut, setIsSigningOut] = useState(false)
   const [uploadPercent, setUploadPercent] = useState(0)
   const [loadingResultJobId, setLoadingResultJobId] = useState<string | null>(null)
+  const [reanalyzingJobId, setReanalyzingJobId] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(!currentJob)
   const [overviewOpen, setOverviewOpen] = useState(false)
@@ -209,6 +210,34 @@ export function AuditCommandCenter({
       setError(fetchError instanceof Error ? fetchError.message : "读取结果失败")
     } finally {
       setLoadingResultJobId(null)
+    }
+  }
+
+  async function reanalyzeHistoryJob(job: AuditHistoryJob) {
+    setError("")
+    setReanalyzingJobId(job.id)
+    try {
+      const response = await fetch(`/api/audit/jobs/${job.id}/reanalyze`, {
+        method: "POST",
+        cache: "no-store",
+      })
+      const payload = (await response.json().catch(() => ({ error: "重新分析失败" }))) as ResultPayload
+      if (!response.ok) {
+        setError(response.status === 401 ? "请重新登录后重新分析历史结果" : payload.error || "重新分析失败")
+        return
+      }
+      setCurrentJob(payload.job)
+      setResult(payload.result)
+      setDistribution(payload.distribution)
+      setStage({ activeStep: 5, failed: false, complete: true, label: payload.job.message })
+      setProviderProgress(null)
+      setUploadPercent(100)
+      await Promise.all([refreshHistory(), refreshCurrentUser()])
+      setHistoryOpen(false)
+    } catch (fetchError) {
+      setError(fetchError instanceof Error ? fetchError.message : "重新分析失败")
+    } finally {
+      setReanalyzingJobId(null)
     }
   }
 
@@ -540,8 +569,10 @@ export function AuditCommandCenter({
           jobs={history}
           activeJobId={currentJob?.id ?? null}
           loadingJobId={loadingResultJobId}
+          reanalyzingJobId={reanalyzingJobId}
           onOpenChange={setHistoryOpen}
           onOpen={openHistoryJob}
+          onReanalyze={reanalyzeHistoryJob}
         />
       </div>
 

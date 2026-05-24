@@ -150,6 +150,7 @@ export async function putCloudObjectText(input: {
   contentType: string
   config: CloudObjectStoreConfig
   fetcher?: typeof fetch
+  bucket?: R2BucketLike
 }): Promise<void> {
   await putCloudObject({
     objectKey: input.objectKey,
@@ -157,6 +158,7 @@ export async function putCloudObjectText(input: {
     contentType: input.contentType,
     config: input.config,
     fetcher: input.fetcher,
+    bucket: input.bucket,
   })
 }
 
