@@ -1,0 +1,8 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend task index for Next.js audit console component changes."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Component placement, client component boundaries, and audit workbench layout rules."}
+{"file":".trellis/spec/frontend/components.md","reason":"Audit console layout, UI primitive, animation-safe layout, and accessibility conventions."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Typed props and state conventions for client components."}
+{"file":".trellis/spec/frontend/hooks.md","reason":"Preserve staged upload/OCR state machine behavior while moving presentation."}
+{"file":".trellis/spec/frontend/quality.md","reason":"UI quality, wrapping, accessibility, and required frontend checks."}
+{"file":".trellis/spec/shared/code-quality.md","reason":"Shared quality rules and required checks."}
+{"file":".trellis/spec/shared/typescript.md","reason":"TypeScript import and nullability conventions."}

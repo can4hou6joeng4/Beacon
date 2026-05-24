@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/components.md","reason":"Verify centered pipeline layout, responsive behavior, and UI primitive use."}
+{"file":".trellis/spec/frontend/quality.md","reason":"Verify animation, text wrapping, accessibility, and required frontend checks."}
+{"file":".trellis/spec/frontend/hooks.md","reason":"Verify no staged upload/OCR state machine behavior changed."}
+{"file":".trellis/spec/shared/code-quality.md","reason":"Run project checks and verify no backend/API/secrets changes."}
+{"file":".trellis/spec/shared/typescript.md","reason":"Verify type-safety rules are preserved."}

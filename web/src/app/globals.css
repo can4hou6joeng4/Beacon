@@ -136,3 +136,12 @@ body {
 .audit-shell {
   min-height: 100vh;
 }
+
+@keyframes pipeline-flow {
+  0% {
+    transform: translateX(-6rem);
+  }
+  100% {
+    transform: translateX(calc(100vw + 6rem));
+  }
+}

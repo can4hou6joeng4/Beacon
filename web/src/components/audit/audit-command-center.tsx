@@ -398,34 +398,6 @@ export function AuditCommandCenter({
             </Card>
           </form>
 
-          <Card className="mt-5">
-            <CardHeader>
-              <div className="flex items-center justify-between gap-3">
-                <CardTitle className="text-sm">任务流水线</CardTitle>
-                <Badge variant="outline">{progressPercent}%</Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {currentJob ? (
-                <div className="mb-4 rounded-md border bg-[#f8fbfc] p-3 dark:bg-muted/20">
-                  <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">
-                    <FolderOpen className="h-4 w-4 shrink-0 text-[#176b87]" />
-                    <span className="truncate">{currentJob.filename}</span>
-                  </div>
-                  <div className="mt-2 grid gap-1 text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1.5">
-                      <CalendarClock className="h-3.5 w-3.5" />
-                      截止 {currentJob.cutoff}
-                    </span>
-                    <span>{currentJob.message}</span>
-                  </div>
-                </div>
-              ) : null}
-              <Progress value={progressPercent} className="mb-4" />
-              <ProgressSteps stage={stage} />
-            </CardContent>
-          </Card>
-
         </aside>
 
         <section className="min-w-0 p-5">
@@ -459,6 +431,37 @@ export function AuditCommandCenter({
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : null}
+
+          <Card className="mx-auto mb-5 max-w-6xl overflow-hidden">
+            <CardHeader>
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-sm">任务流水线</CardTitle>
+                    <Badge variant="outline">{progressPercent}%</Badge>
+                  </div>
+                  {currentJob ? (
+                    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <span className="inline-flex min-w-0 items-center gap-1.5">
+                        <FolderOpen className="h-3.5 w-3.5 shrink-0 text-[#176b87]" />
+                        <span className="max-w-full truncate">{currentJob.filename}</span>
+                      </span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <CalendarClock className="h-3.5 w-3.5" />
+                        截止 {currentJob.cutoff}
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="max-w-2xl text-xs leading-5 text-muted-foreground xl:text-right">
+                  {stage?.complete ? "报告已生成" : stage?.label || currentJob?.message || "等待上传 PDF 后开始云端处理"}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <ProgressSteps stage={stage} />
+            </CardContent>
+          </Card>
 
           <Card className="mb-5">
             <CardHeader>

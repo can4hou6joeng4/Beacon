@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils"
 import type { StageState } from "@/lib/audit-python"
 
 const steps = [
-  { label: "上传", description: "PDF 已进入本机任务队列" },
+  { label: "上传", description: "PDF 已进入云端队列" },
   { label: "书签解析", description: "读取目录结构与证件页范围" },
   { label: "OCR 识别", description: "逐页识别证件有效期文本" },
   { label: "有效期抽取", description: "提取日期并按截止日分类" },
@@ -22,47 +22,69 @@ function stepState(stage: StageState | null, stepNo: number) {
 export function ProgressSteps({ stage }: { stage: StageState | null }) {
   const activeStep = stage?.activeStep ?? 0
   const percent = stage?.complete ? 100 : stage ? Math.min(stage.activeStep * 20, 86) : 0
+  const isRunning = activeStep > 0 && !stage?.complete && !stage?.failed
 
   return (
-    <div className="space-y-2">
-      {steps.map((step, index) => {
-        const stepNo = index + 1
-        const state = stepState(stage, stepNo)
-        return (
-          <div
-            key={step.label}
-            className={cn(
-              "grid min-h-[68px] grid-cols-[28px_1fr] gap-3 rounded-md border bg-background p-3",
-              state === "active" && "border-[#176b87]/45 bg-[#eef7fa] dark:bg-cyan-950/30 dark:border-cyan-800/60",
-              state === "failed" && "border-destructive/40 bg-destructive/5",
-              state === "done" && "border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/70 dark:bg-emerald-950/20",
-            )}
-          >
-            <div className="pt-0.5">
-              {state === "failed" ? (
-                <XCircle className="h-5 w-5 text-destructive" />
-              ) : state === "done" ? (
-                <CheckCircle2 className="h-5 w-5 text-emerald-700" />
-              ) : state === "active" ? (
-                <Loader2 className="h-5 w-5 animate-spin text-[#176b87]" />
-              ) : (
-                <Circle className="h-5 w-5 text-muted-foreground/70" />
+    <div className="space-y-4">
+      <div className="relative overflow-hidden rounded-full bg-muted/60 p-1">
+        <div
+          className={cn(
+            "h-2 rounded-full bg-[#176b87] transition-[width] duration-700 ease-out",
+            isRunning && "animate-pulse",
+            stage?.failed && "bg-destructive",
+            stage?.complete && "bg-emerald-600",
+          )}
+          style={{ width: `${percent}%` }}
+        />
+        {isRunning ? <div className="absolute inset-y-1 left-0 w-24 animate-[pipeline-flow_1.8s_linear_infinite] rounded-full bg-white/35" /> : null}
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-5">
+        {steps.map((step, index) => {
+          const stepNo = index + 1
+          const state = stepState(stage, stepNo)
+          return (
+            <div
+              key={step.label}
+              className={cn(
+                "group relative grid min-h-[124px] gap-3 rounded-md border bg-background p-3 text-center transition-all duration-300",
+                "before:absolute before:left-1/2 before:top-5 before:hidden before:h-px before:w-[calc(100%+0.75rem)] before:bg-border md:before:block",
+                index === steps.length - 1 && "before:hidden md:before:hidden",
+                state === "active" && "scale-[1.01] border-[#176b87]/45 bg-[#eef7fa] shadow-sm dark:bg-cyan-950/30 dark:border-cyan-800/60",
+                state === "failed" && "border-destructive/40 bg-destructive/5",
+                state === "done" && "border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/70 dark:bg-emerald-950/20",
               )}
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <div className={cn("text-sm font-semibold", state === "active" && "text-[#176b87]", state === "failed" && "text-destructive")}>{step.label}</div>
-                <div className="shrink-0 text-[11px] text-muted-foreground">
+            >
+              <div className="relative z-10 mx-auto grid h-10 w-10 place-items-center rounded-full border bg-background shadow-sm">
+                {state === "failed" ? (
+                  <XCircle className="h-5 w-5 text-destructive" />
+                ) : state === "done" ? (
+                  <CheckCircle2 className="h-5 w-5 text-emerald-700" />
+                ) : state === "active" ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-[#176b87]" />
+                ) : (
+                  <Circle className="h-5 w-5 text-muted-foreground/70" />
+                )}
+                {state === "active" ? (
+                  <span className="absolute inset-0 -z-10 animate-ping rounded-full bg-[#176b87]/20" aria-hidden="true" />
+                ) : null}
+              </div>
+              <div className="min-w-0">
+                <div className={cn("text-sm font-semibold", state === "active" && "text-[#176b87]", state === "failed" && "text-destructive")}>
+                  {step.label}
+                </div>
+                <div className="mt-1 text-[11px] text-muted-foreground">
                   {state === "active" ? "进行中" : state === "done" ? "完成" : state === "failed" ? "失败" : "等待"}
                 </div>
-              </div>
-              <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                {state === "active" ? stage?.label || step.description : step.description}
+                <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                  {state === "active" ? stage?.label || step.description : step.description}
+                </div>
               </div>
             </div>
-          </div>
-        )
-      })}
+          )
+        })}
+      </div>
+
       <div className="flex items-center justify-between rounded-md bg-[#f6f8f9] px-3 py-2 text-xs text-muted-foreground dark:bg-muted/30">
         <span className="inline-flex items-center gap-1.5">
           <Clock3 className="h-3.5 w-3.5" />

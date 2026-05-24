@@ -50,8 +50,9 @@ The first screen is the usable audit console, not a landing page.
 
 Current layout:
 
-- Left sidebar: account/quota, upload controls, pipeline.
-- Main area: headline, history button, audit overview, result table.
+- Left sidebar: account/quota and upload controls.
+- Main area: headline, history button, centered task pipeline, audit overview,
+  result table.
 - Dialogs: history browser, evidence details, and admin user management.
 
 Keep operational UIs dense and scannable:
@@ -62,6 +63,20 @@ Keep operational UIs dense and scannable:
 - Use stable grid dimensions for tables, tabs, quota fields, and progress areas.
 - Ensure long filenames, emails, evidence text, and OCR lines wrap or truncate
   intentionally.
+
+## Task Pipeline
+
+The task pipeline belongs in the main audit content area, centered near the top
+of the page. It should show upload/OCR progress as a horizontal stepper on
+desktop and collapse into readable grid rows on smaller screens.
+
+- Keep the sidebar focused on account/quota and upload controls.
+- Preserve the existing staged upload/OCR state machine; pipeline changes should
+  be presentational unless a task explicitly changes behavior.
+- Use lightweight CSS/Tailwind animations for the active step and running
+  progress only.
+- Prevent animation from changing layout dimensions or hiding text.
+- Keep done, active, waiting, and failed states distinct.
 
 ## Evidence Text
 
