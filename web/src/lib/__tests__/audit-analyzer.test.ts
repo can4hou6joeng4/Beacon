@@ -64,7 +64,7 @@ describe("analyzePaddleOcrJsonl", () => {
           {
             markdown: {
               text: [
-                "项目评审结论表",
+                "注册证书信息页",
                 "使用有效期：2026年03月02日",
                 "有效期至 2026年05月31日",
               ].join("\n"),
@@ -85,5 +85,65 @@ describe("analyzePaddleOcrJsonl", () => {
       { field: "有效期至 2026年05月31日", expiry: "2026-05-31" },
     ])
     expect(artifacts.result.matches[0]?.expiry_date).toBe("2026-03-02")
+  })
+
+  it("uses the later date as the end of a split use-validity range on certificate pages", () => {
+    const jsonl = JSON.stringify({
+      result: {
+        layoutParsingResults: [
+          {
+            markdown: {
+              text: [
+                "中华人民共和国 一级造价工程师注册证书",
+                "使用有效期：2026年03月25日",
+                "· 2026年06月23日",
+              ].join("\n"),
+            },
+          },
+          {
+            markdown: {
+              text: [
+                "中华人民共和国 一级造价工程师注册证书",
+                "使用有效期：2026年03月10日",
+                "· 2026年06月08日",
+              ].join("\n"),
+            },
+          },
+        ],
+      },
+    })
+
+    const artifacts = analyzePaddleOcrJsonl({ jobId: "job-split-use-validity", cutoff: "2026-05-22", jsonl })
+    const expiries = artifacts.result.candidates.map((row) => row.expiry_date)
+
+    expect(expiries).toEqual(["2026-06-23", "2026-06-08"])
+    expect(artifacts.result.matches).toHaveLength(0)
+    expect(artifacts.result.near_expiry.map((row) => row.expiry_date)).toEqual(["2026-06-23", "2026-06-08"])
+  })
+
+  it("ignores non-certificate review forms that mention a use-validity field", () => {
+    const jsonl = JSON.stringify({
+      result: {
+        layoutParsingResults: [
+          {
+            markdown: {
+              text: [
+                "# 项目评审结论表",
+                "使用有效期：2026年03月02日",
+                "有效期至 2026年05月31日",
+                "评审结论：通过",
+              ].join("\n"),
+            },
+          },
+        ],
+      },
+    })
+
+    const artifacts = analyzePaddleOcrJsonl({ jobId: "job-review-form", cutoff: "2026-04-01", jsonl })
+
+    expect(artifacts.result.summary.validity_candidates).toBe(0)
+    expect(artifacts.result.candidates).toEqual([])
+    expect(artifacts.result.matches).toEqual([])
+    expect(artifacts.result.needs_review).toEqual([])
   })
 })
