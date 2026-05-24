@@ -30,6 +30,7 @@ import { Separator } from "@/components/ui/separator"
 import type { StageState } from "@/lib/audit-python"
 import type { AuditHistoryJob, AuditResult, AuditSummary } from "@/lib/audit-types"
 import type { PublicUser } from "@/lib/auth-types"
+import type { PaddleOcrProviderProgress } from "@/lib/paddleocr"
 
 type DistributionRow = {
   name: string
@@ -40,6 +41,7 @@ type DistributionRow = {
 type StatusPayload = {
   job: AuditHistoryJob
   stage: StageState
+  providerProgress?: PaddleOcrProviderProgress
   error?: string
 }
 
@@ -144,6 +146,7 @@ export function AuditCommandCenter({
   const [stage, setStage] = useState<StageState | null>(
     initialResult ? { activeStep: 5, failed: false, complete: true, label: initialResult.job.message } : null,
   )
+  const [providerProgress, setProviderProgress] = useState<PaddleOcrProviderProgress | null>(null)
   const [result, setResult] = useState<AuditResult | null>(initialResult?.result ?? null)
   const [distribution, setDistribution] = useState<DistributionRow[]>(initialResult?.distribution ?? emptyDistribution)
   const [error, setError] = useState("")
@@ -200,6 +203,7 @@ export function AuditCommandCenter({
       setResult(payload.result)
       setDistribution(payload.distribution)
       setStage({ activeStep: 5, failed: false, complete: true, label: payload.job.message })
+      setProviderProgress(null)
       await Promise.all([refreshHistory(), refreshCurrentUser()])
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : "读取结果失败")
@@ -219,6 +223,7 @@ export function AuditCommandCenter({
 
     setCurrentJob(payload.job)
     setStage(payload.stage)
+    setProviderProgress(payload.providerProgress ?? null)
 
     if (payload.job.status === "complete") {
       setUploadPercent(100)
@@ -251,6 +256,7 @@ export function AuditCommandCenter({
     setDistribution(emptyDistribution())
     setIsUploading(true)
     setUploadPercent(0)
+    setProviderProgress(null)
     setStage({ activeStep: 1, failed: false, complete: false, label: "正在创建上传会话" })
 
     try {
@@ -268,6 +274,7 @@ export function AuditCommandCenter({
       if (!sessionResponse.ok) {
         setError(session.error || "创建云端上传会话失败")
         setIsUploading(false)
+        setProviderProgress(null)
         setStage({ activeStep: 1, failed: true, complete: false, label: "上传失败" })
         return
       }
@@ -283,6 +290,7 @@ export function AuditCommandCenter({
         const uploadError = (await uploadResponse.json().catch(() => null)) as { error?: string } | null
         setError(uploadError?.error || `对象存储上传失败：HTTP ${uploadResponse.status}`)
         setIsUploading(false)
+        setProviderProgress(null)
         setStage({ activeStep: 1, failed: true, complete: false, label: "上传失败" })
         return
       }
@@ -298,6 +306,7 @@ export function AuditCommandCenter({
       if (!submitResponse.ok) {
         setError(submitted.error || "提交 PaddleOCR 任务失败")
         setIsUploading(false)
+        setProviderProgress(null)
         setStage({ activeStep: 2, failed: true, complete: false, label: "提交失败" })
         return
       }
@@ -308,6 +317,7 @@ export function AuditCommandCenter({
     } catch (fetchError) {
       setError(fetchError instanceof Error ? `${fetchError.message}。上传中断时请重试。` : "上传请求中断，请重试")
       setIsUploading(false)
+      setProviderProgress(null)
       setStage({ activeStep: 1, failed: true, complete: false, label: "上传失败" })
     }
   }
@@ -327,12 +337,14 @@ export function AuditCommandCenter({
     if (job.status === "complete") {
       setUploadPercent(100)
       setStage({ activeStep: 5, failed: false, complete: true, label: job.message })
+      setProviderProgress(null)
       void loadResult(job)
       return
     }
     setResult(null)
     setDistribution(emptyDistribution())
     setUploadPercent(0)
+    setProviderProgress(null)
     setStage(
       job.status === "failed"
         ? { activeStep: 3, failed: true, complete: false, label: job.message }
@@ -459,7 +471,7 @@ export function AuditCommandCenter({
               </div>
             </CardHeader>
             <CardContent>
-              <ProgressSteps stage={stage} />
+              <ProgressSteps stage={stage} providerProgress={providerProgress} />
             </CardContent>
           </Card>
 

@@ -10,6 +10,7 @@ import {
   parsePaddleOcrJsonlMarkdown,
   submitPaddleOcrFileJob,
   submitPaddleOcrUrlJob,
+  toPaddleOcrProviderProgress,
 } from "../paddleocr"
 
 describe("createPaddleOcrConfig", () => {
@@ -226,6 +227,64 @@ describe("PaddleOCR response parsing", () => {
       status: "failed",
       message: "file expired",
       errorMessage: "file expired",
+    })
+  })
+})
+
+describe("PaddleOCR provider progress", () => {
+  it("maps page counts to a UI-safe percent", () => {
+    const snapshot = parsePaddleOcrJobSnapshot({
+      data: {
+        jobId: "job-123",
+        state: "running",
+        extractProgress: { totalPages: 225, extractedPages: 17, startTime: "2026-05-22T01:00:00Z" },
+      },
+    })
+
+    expect(toPaddleOcrProviderProgress(snapshot)).toEqual({
+      provider: "paddleocr",
+      state: "running",
+      totalPages: 225,
+      extractedPages: 17,
+      percent: 8,
+      startedAt: "2026-05-22T01:00:00Z",
+      endedAt: null,
+      message: "PaddleOCR 正在解析：17/225 页",
+    })
+  })
+
+  it("does not invent a percent when PaddleOCR has not returned page counts", () => {
+    const snapshot = parsePaddleOcrJobSnapshot({
+      data: {
+        jobId: "job-123",
+        state: "running",
+      },
+    })
+
+    expect(toPaddleOcrProviderProgress(snapshot)).toMatchObject({
+      state: "running",
+      totalPages: null,
+      extractedPages: null,
+      percent: null,
+      message: "PaddleOCR 正在解析",
+    })
+  })
+
+  it("marks completed provider progress as 100 percent when totals are unavailable", () => {
+    const snapshot = parsePaddleOcrJobSnapshot({
+      data: {
+        jobId: "job-123",
+        state: "done",
+        extractProgress: { extractedPages: 225, endTime: "2026-05-22T01:03:00Z" },
+      },
+    })
+
+    expect(toPaddleOcrProviderProgress(snapshot)).toMatchObject({
+      state: "done",
+      extractedPages: 225,
+      percent: 100,
+      endedAt: "2026-05-22T01:03:00Z",
+      message: "PaddleOCR 解析完成",
     })
   })
 })

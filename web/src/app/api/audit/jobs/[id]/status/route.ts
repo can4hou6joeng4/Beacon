@@ -10,7 +10,7 @@ import {
   putCloudObjectText,
   siblingObjectKey,
 } from "@/lib/cloud-object-store"
-import { fetchPaddleOcrJobSnapshot, fetchText } from "@/lib/paddleocr"
+import { fetchPaddleOcrJobSnapshot, fetchText, toPaddleOcrProviderProgress } from "@/lib/paddleocr"
 import { createPaddleOcrRuntimeConfig } from "@/lib/paddleocr-runtime"
 import { consumeOcrPageQuota } from "@/lib/quota"
 
@@ -66,7 +66,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         job: updated,
         status: { status: snapshot.status, message: snapshot.message },
         stage: stageFromStatus({ status: snapshot.status, message: snapshot.message }),
-        snapshot,
+        providerProgress: toPaddleOcrProviderProgress(snapshot),
       })
     }
 

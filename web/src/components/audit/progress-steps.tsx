@@ -1,6 +1,7 @@
-import { CheckCircle2, Circle, Clock3, Loader2, XCircle } from "lucide-react"
+import { CheckCircle2, Circle, Clock3, FileSearch, Loader2, XCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { StageState } from "@/lib/audit-python"
+import type { PaddleOcrProviderProgress } from "@/lib/paddleocr"
 
 const steps = [
   { label: "上传", description: "PDF 已进入云端队列" },
@@ -19,7 +20,96 @@ function stepState(stage: StageState | null, stepNo: number) {
   return "waiting"
 }
 
-export function ProgressSteps({ stage }: { stage: StageState | null }) {
+function providerStateLabel(progress: PaddleOcrProviderProgress): string {
+  if (progress.state === "pending") return "排队中"
+  if (progress.state === "running") return "解析中"
+  if (progress.state === "done") return "已完成"
+  return "失败"
+}
+
+function providerPageLabel(progress: PaddleOcrProviderProgress): string {
+  if (progress.totalPages !== null && progress.extractedPages !== null) {
+    return `${progress.extractedPages} / ${progress.totalPages} 页`
+  }
+  if (progress.state === "done" && progress.extractedPages !== null) {
+    return `已解析 ${progress.extractedPages} 页`
+  }
+  return "等待页数进度"
+}
+
+function providerProgressLabel(progress: PaddleOcrProviderProgress): string {
+  if (progress.percent !== null) return `${progress.percent}%`
+  if (progress.state === "pending") return "等待"
+  if (progress.state === "failed") return "失败"
+  return "同步中"
+}
+
+function ProviderProgressPanel({ progress }: { progress: PaddleOcrProviderProgress }) {
+  const hasPercent = progress.percent !== null
+  const isRunning = progress.state === "running"
+  const isFailed = progress.state === "failed"
+  const isDone = progress.state === "done"
+  const width = hasPercent ? progress.percent : isRunning ? 42 : isDone ? 100 : 18
+
+  return (
+    <div
+      className={cn(
+        "rounded-md border bg-background p-3",
+        isRunning && "border-[#176b87]/30 bg-[#f4fbfd] dark:border-cyan-800/60 dark:bg-cyan-950/20",
+        isDone && "border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/70 dark:bg-emerald-950/20",
+        isFailed && "border-destructive/40 bg-destructive/5",
+      )}
+    >
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 text-sm font-semibold">
+              <FileSearch className={cn("h-4 w-4", isFailed ? "text-destructive" : "text-[#176b87]")} />
+              第三方解析进度
+            </span>
+            <span className="rounded-full border bg-background px-2 py-0.5 text-[11px] text-muted-foreground">PaddleOCR</span>
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-[11px] font-medium",
+                isFailed && "bg-destructive/10 text-destructive",
+                isDone && "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
+                !isFailed && !isDone && "bg-[#e7f4f8] text-[#176b87] dark:bg-cyan-950 dark:text-cyan-200",
+              )}
+            >
+              {providerStateLabel(progress)}
+            </span>
+          </div>
+          <div className="mt-2 break-words text-xs leading-5 text-muted-foreground">{progress.message}</div>
+        </div>
+        <div className="shrink-0 text-left md:text-right">
+          <div className="text-sm font-semibold">{providerPageLabel(progress)}</div>
+          <div className="mt-1 text-xs text-muted-foreground">{providerProgressLabel(progress)}</div>
+        </div>
+      </div>
+
+      <div className="mt-3 overflow-hidden rounded-full bg-muted/70 p-1">
+        <div
+          className={cn(
+            "h-2 rounded-full transition-[width] duration-700 ease-out",
+            isFailed && "bg-destructive",
+            isDone && "bg-emerald-600",
+            !isFailed && !isDone && "bg-[#176b87]",
+            !hasPercent && isRunning && "animate-pulse",
+          )}
+          style={{ width: `${width}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+export function ProgressSteps({
+  stage,
+  providerProgress,
+}: {
+  stage: StageState | null
+  providerProgress?: PaddleOcrProviderProgress | null
+}) {
   const activeStep = stage?.activeStep ?? 0
   const percent = stage?.complete ? 100 : stage ? Math.min(stage.activeStep * 20, 86) : 0
   const isRunning = activeStep > 0 && !stage?.complete && !stage?.failed
@@ -92,6 +182,8 @@ export function ProgressSteps({ stage }: { stage: StageState | null }) {
         </span>
         <span>{percent}%</span>
       </div>
+
+      {providerProgress ? <ProviderProgressPanel progress={providerProgress} /> : null}
     </div>
   )
 }

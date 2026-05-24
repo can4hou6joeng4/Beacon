@@ -30,6 +30,17 @@ export type PaddleOcrJobSnapshot = {
   endTime: string | null
 }
 
+export type PaddleOcrProviderProgress = {
+  provider: "paddleocr"
+  state: PaddleOcrState
+  totalPages: number | null
+  extractedPages: number | null
+  percent: number | null
+  startedAt: string | null
+  endedAt: string | null
+  message: string
+}
+
 export type PaddleOcrMarkdownPage = {
   pageIndex: number
   markdown: string
@@ -199,6 +210,19 @@ export function parsePaddleOcrJobSnapshot(payload: unknown): PaddleOcrJobSnapsho
   }
 }
 
+export function toPaddleOcrProviderProgress(snapshot: PaddleOcrJobSnapshot): PaddleOcrProviderProgress {
+  return {
+    provider: "paddleocr",
+    state: snapshot.providerState,
+    totalPages: snapshot.totalPages,
+    extractedPages: snapshot.extractedPages,
+    percent: calculateProviderPercent(snapshot),
+    startedAt: snapshot.startTime,
+    endedAt: snapshot.endTime,
+    message: snapshot.message,
+  }
+}
+
 export function parsePaddleOcrJsonlMarkdown(jsonl: string): PaddleOcrMarkdownPage[] {
   const pages: PaddleOcrMarkdownPage[] = []
   for (const line of jsonl.split(/\r?\n/)) {
@@ -290,6 +314,15 @@ function buildStatusMessage(
   if (state === "running") return "PaddleOCR 正在解析"
   if (state === "done") return "PaddleOCR 解析完成"
   return errorMessage || "PaddleOCR 解析失败"
+}
+
+function calculateProviderPercent(snapshot: PaddleOcrJobSnapshot): number | null {
+  if (snapshot.totalPages !== null && snapshot.totalPages > 0 && snapshot.extractedPages !== null) {
+    const percent = Math.round((snapshot.extractedPages / snapshot.totalPages) * 100)
+    return Math.min(100, Math.max(0, percent))
+  }
+  if (snapshot.providerState === "done") return 100
+  return null
 }
 
 function parsePaddleOcrState(value: unknown): PaddleOcrState {
