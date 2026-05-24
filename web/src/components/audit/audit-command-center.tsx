@@ -5,14 +5,17 @@ import {
   Archive,
   CalendarClock,
   ChevronDown,
+  Loader2,
   FileText,
   FolderOpen,
   LogOut,
+  RefreshCw,
   ShieldCheck,
   UploadCloud,
   User,
 } from "lucide-react"
 import { FormEvent, useMemo, useRef, useState } from "react"
+import { toast } from "sonner"
 import { AdminUserDialog } from "@/components/audit/admin-user-dialog"
 import { HistoryPanel } from "@/components/audit/history-panel"
 import { ProgressSteps } from "@/components/audit/progress-steps"
@@ -73,6 +76,13 @@ type MePayload = {
   user?: PublicUser
   error?: string
 }
+
+type ReanalysisNotice = {
+  jobId: string
+  filename: string
+  status: "running" | "success"
+  message: string
+} | null
 
 function emptyDistribution(): DistributionRow[] {
   return [
@@ -155,6 +165,7 @@ export function AuditCommandCenter({
   const [uploadPercent, setUploadPercent] = useState(0)
   const [loadingResultJobId, setLoadingResultJobId] = useState<string | null>(null)
   const [reanalyzingJobId, setReanalyzingJobId] = useState<string | null>(null)
+  const [reanalysisNotice, setReanalysisNotice] = useState<ReanalysisNotice>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(!currentJob)
   const [overviewOpen, setOverviewOpen] = useState(false)
@@ -216,6 +227,15 @@ export function AuditCommandCenter({
   async function reanalyzeHistoryJob(job: AuditHistoryJob) {
     setError("")
     setReanalyzingJobId(job.id)
+    setReanalysisNotice({
+      jobId: job.id,
+      filename: job.filename,
+      status: "running",
+      message: "正在基于已保存的 OCR 原始结果重新分析",
+    })
+    const toastId = toast.loading("正在重新分析历史结果", {
+      description: job.filename,
+    })
     try {
       const response = await fetch(`/api/audit/jobs/${job.id}/reanalyze`, {
         method: "POST",
@@ -223,7 +243,13 @@ export function AuditCommandCenter({
       })
       const payload = (await response.json().catch(() => ({ error: "重新分析失败" }))) as ResultPayload
       if (!response.ok) {
-        setError(response.status === 401 ? "请重新登录后重新分析历史结果" : payload.error || "重新分析失败")
+        const message = response.status === 401 ? "请重新登录后重新分析历史结果" : payload.error || "重新分析失败"
+        setError(message)
+        setReanalysisNotice(null)
+        toast.error("重新分析失败", {
+          id: toastId,
+          description: message,
+        })
         return
       }
       setCurrentJob(payload.job)
@@ -233,9 +259,25 @@ export function AuditCommandCenter({
       setProviderProgress(null)
       setUploadPercent(100)
       await Promise.all([refreshHistory(), refreshCurrentUser()])
+      setReanalysisNotice({
+        jobId: payload.job.id,
+        filename: payload.job.filename,
+        status: "success",
+        message: "已使用最新规则刷新结果",
+      })
+      toast.success("重新分析完成", {
+        id: toastId,
+        description: "当前结果已刷新",
+      })
       setHistoryOpen(false)
     } catch (fetchError) {
-      setError(fetchError instanceof Error ? fetchError.message : "重新分析失败")
+      const message = fetchError instanceof Error ? fetchError.message : "重新分析失败"
+      setError(message)
+      setReanalysisNotice(null)
+      toast.error("重新分析失败", {
+        id: toastId,
+        description: message,
+      })
     } finally {
       setReanalyzingJobId(null)
     }
@@ -286,6 +328,7 @@ export function AuditCommandCenter({
     setIsUploading(true)
     setUploadPercent(0)
     setProviderProgress(null)
+    setReanalysisNotice(null)
     setStage({ activeStep: 1, failed: false, complete: false, label: "正在创建上传会话" })
 
     try {
@@ -363,6 +406,7 @@ export function AuditCommandCenter({
 
   function openHistoryJob(job: AuditHistoryJob) {
     setCurrentJob(job)
+    setReanalysisNotice(null)
     if (job.status === "complete") {
       setUploadPercent(100)
       setStage({ activeStep: 5, failed: false, complete: true, label: job.message })
@@ -470,6 +514,20 @@ export function AuditCommandCenter({
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>检查失败</AlertTitle>
               <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          {reanalysisNotice ? (
+            <Alert className="mb-5 border-[#176b87]/30 bg-[#eef7fa] text-[#0f4f63] dark:border-cyan-800/60 dark:bg-cyan-950/30 dark:text-cyan-100">
+              {reanalysisNotice.status === "running" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              <AlertTitle>{reanalysisNotice.status === "running" ? "正在重新分析" : "重新分析完成"}</AlertTitle>
+              <AlertDescription className="break-words text-[#0f4f63]/80 dark:text-cyan-100/80">
+                {reanalysisNotice.message}：{reanalysisNotice.filename}
+              </AlertDescription>
             </Alert>
           ) : null}
 

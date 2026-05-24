@@ -146,4 +146,32 @@ describe("analyzePaddleOcrJsonl", () => {
     expect(artifacts.result.matches).toEqual([])
     expect(artifacts.result.needs_review).toEqual([])
   })
+
+  it("ignores review-table validity rows on mixed pages while keeping certificate validity rows", () => {
+    const jsonl = JSON.stringify({
+      result: {
+        layoutParsingResults: [
+          {
+            markdown: {
+              text: [
+                "# 项目评审结论表",
+                "有效期至2024年03月24日",
+                "评审结论：通过",
+                "中华人民共和国 一级造价工程师注册证书",
+                "使用有效期：2026年03月25日",
+                "· 2026年06月23日",
+              ].join("\n"),
+            },
+          },
+        ],
+      },
+    })
+
+    const artifacts = analyzePaddleOcrJsonl({ jobId: "job-mixed-review-form", cutoff: "2026-06-01", jsonl })
+
+    expect(artifacts.result.summary.validity_candidates).toBe(1)
+    expect(artifacts.result.candidates.map((row) => row.expiry_date)).toEqual(["2026-06-23"])
+    expect(artifacts.result.matches).toHaveLength(0)
+    expect(artifacts.result.candidates[0]?.field_context).toBe("使用有效期：2026年03月25日 · 2026年06月23日")
+  })
 })
