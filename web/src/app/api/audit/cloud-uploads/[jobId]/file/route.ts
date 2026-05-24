@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { jsonError } from "@/lib/api-response"
 import { requireAuth } from "@/lib/auth"
 import { getAuditDb } from "@/lib/audit-db"
+import { requireAuditJobForUser } from "@/lib/audit-isolation"
 import { AppError } from "@/lib/app-error"
 import {
   assertObjectStoreConfigured,
@@ -26,10 +27,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ jobI
     }
 
     const db = await getAuditDb()
-    const job = await db.getJobForUser(jobId, context.user.id, context.user.role)
-    if (!job) {
-      return NextResponse.json({ error: "任务不存在" }, { status: 404 })
-    }
+    const job = await requireAuditJobForUser({ db, jobId, userId: context.user.id, role: context.user.role })
     if (job.runtime !== "paddleocr" || !job.objectKey) {
       return NextResponse.json({ error: "任务不支持云端 PDF 上传" }, { status: 400 })
     }

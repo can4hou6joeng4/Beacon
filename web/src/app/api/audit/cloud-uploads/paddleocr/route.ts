@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { jsonError } from "@/lib/api-response"
 import { requireAuth } from "@/lib/auth"
 import { getAuditDb } from "@/lib/audit-db"
+import { assertJobObjectKeyMatches, requireAuditJobForUser } from "@/lib/audit-isolation"
 import {
   assertObjectStoreConfigured,
   assertSafeObjectKey,
@@ -36,10 +37,18 @@ export async function POST(request: Request) {
     assertObjectStoreConfigured(config)
     assertSafeObjectKey(objectKey, config.prefix)
     const db = await timing.measure("db_init", () => getAuditDb(), "audit db")
-    const job = await timing.measure("d1_get_job", () => db.getJobForUser(jobId, context.user.id, context.user.role), "load job")
-    if (!job || job.objectKey !== objectKey) {
-      return NextResponse.json({ error: "任务不存在或对象路径不匹配" }, { status: 404 })
-    }
+    const job = await timing.measure(
+      "d1_get_job",
+      () => requireAuditJobForUser({
+        db,
+        jobId,
+        userId: context.user.id,
+        role: context.user.role,
+        notFoundMessage: "任务不存在或对象路径不匹配",
+      }),
+      "load job",
+    )
+    assertJobObjectKeyMatches(job, objectKey)
     failureJobId = job.id
     if (job.providerJobId) {
       return responseWithServerTiming(NextResponse.json({ job, objectKey, providerJobId: job.providerJobId }), timing)

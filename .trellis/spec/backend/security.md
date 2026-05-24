@@ -115,6 +115,12 @@ DB/service layer rather than inferred from UI state.
 Protected routes should call `requireAuth(request)` or `requireAdmin(request)`
 before loading sensitive rows or objects.
 
+Job-level audit routes should authorize through `requireAuditJobForUser(...)`
+or an equivalent `AuditDb.getJobForUser(...)` boundary before any R2,
+PaddleOCR, quota, or reanalysis side effect. Routes that accept an `objectKey`
+must also compare the submitted key with the authorized job row before reading
+or submitting the object.
+
 ## Quota Security
 
 Quota resources:
