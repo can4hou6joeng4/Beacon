@@ -193,7 +193,9 @@ Replaced generic Trellis template specs with project-specific Next.js/OpenNext C
 
 ### Main Changes
 
-(Add details)
+- Added a main workbench tab surface for progress, overview, results, and history.
+- Replaced the misleading coarse `86%` post-upload progress with a more conservative upload-to-provider progress calculation.
+- Kept detailed result-category tabs intact while adding a faster history quick-view path.
 
 ### Git Commits
 
@@ -203,7 +205,10 @@ Replaced generic Trellis template specs with project-specific Next.js/OpenNext C
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] `npm run lint`
+- [OK] `npm run test`
+- [OK] `npm run build`
+- [OK] `npm run cf:build`
 
 ### Status
 
@@ -366,6 +371,39 @@ Added shared audit job authorization helpers, regression coverage for account da
 | Hash | Message |
 |------|---------|
 | `bf1492e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 11: PaddleOCR progress and result tabs
+
+**Date**: 2026-05-25
+**Task**: PaddleOCR progress and result tabs
+**Branch**: `main`
+
+### Summary
+
+Improved the PaddleOCR audit workbench with more truthful upload-to-provider progress percentages, a main progress/overview/results/history tab surface, and a history quick-view path while preserving existing result-category tabs.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5e76bdf` | (see git log) |
 
 ### Testing
 
