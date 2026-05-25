@@ -1,8 +1,10 @@
 "use client"
 
 import {
+  Activity,
   AlertCircle,
   Archive,
+  BarChart3,
   CalendarClock,
   ChevronDown,
   Loader2,
@@ -11,6 +13,7 @@ import {
   LogOut,
   RefreshCw,
   ShieldCheck,
+  TableProperties,
   UploadCloud,
   User,
 } from "lucide-react"
@@ -30,8 +33,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { StageState } from "@/lib/audit-python"
-import type { AuditHistoryJob, AuditResult, AuditSummary } from "@/lib/audit-types"
+import type { AuditHistoryJob, AuditResult, AuditStatusValue, AuditSummary } from "@/lib/audit-types"
 import type { PublicUser } from "@/lib/auth-types"
 import type { PaddleOcrProviderProgress } from "@/lib/paddleocr"
 
@@ -84,6 +88,8 @@ type ReanalysisNotice = {
   message: string
 } | null
 
+type WorkbenchTab = "progress" | "overview" | "results" | "history"
+
 function emptyDistribution(): DistributionRow[] {
   return [
     { name: "早于截止", value: 0, kind: "danger" },
@@ -116,6 +122,33 @@ function quotaPercent(used: number, limit: number): number {
   return Math.min(100, Math.round((used / limit) * 100))
 }
 
+function workflowProgressPercent(stage: StageState | null, uploadPercent: number, providerProgress: PaddleOcrProviderProgress | null): number {
+  if (stage?.complete) return 100
+  if (stage?.failed) return Math.max(0, Math.min(uploadPercent, 42))
+  if (providerProgress?.state === "done") return 88
+  if (providerProgress?.state === "failed") return Math.max(42, uploadPercent)
+  if (providerProgress?.state === "running") {
+    if (providerProgress.percent !== null) return Math.min(84, 44 + Math.round(providerProgress.percent * 0.36))
+    return Math.max(48, uploadPercent, 48)
+  }
+  if (providerProgress?.state === "pending") return Math.max(42, uploadPercent, 42)
+  if (!stage) return 0
+  if (stage.activeStep <= 1) return Math.max(8, Math.min(32, uploadPercent || 18))
+  if (stage.activeStep === 2) return Math.max(34, uploadPercent, 34)
+  if (stage.activeStep === 3) return Math.max(42, uploadPercent, 42)
+  if (stage.activeStep === 4) return 88
+  if (stage.activeStep >= 5) return 96
+  return Math.max(0, Math.min(uploadPercent, 96))
+}
+
+function statusLabel(status: AuditStatusValue): string {
+  if (status === "complete") return "已完成"
+  if (status === "failed") return "失败"
+  if (status === "running") return "运行中"
+  if (status === "queued") return "排队中"
+  return "未知"
+}
+
 async function fetchWithRetries(input: RequestInfo | URL, init: RequestInit, attempts = 5): Promise<Response> {
   let lastError: unknown
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -138,6 +171,99 @@ function CollapseButton({ open, onClick }: { open: boolean; onClick: () => void 
       <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
       <span className="sr-only">{open ? "收起" : "展开"}</span>
     </Button>
+  )
+}
+
+function WorkbenchTabTrigger({
+  value,
+  icon: Icon,
+  label,
+  badge,
+  disabled,
+}: {
+  value: WorkbenchTab
+  icon: typeof Activity
+  label: string
+  badge: string
+  disabled?: boolean
+}) {
+  return (
+    <TabsTrigger
+      value={value}
+      disabled={disabled}
+      className="h-14 justify-start rounded-md border bg-card px-3 py-2 text-left data-active:border-[#176b87] data-active:bg-[#eef7fa] data-active:shadow-sm disabled:bg-muted/30 disabled:text-muted-foreground/60 dark:data-active:bg-cyan-950/30 dark:data-active:border-cyan-800/70"
+    >
+      <Icon className="h-4 w-4 text-[#176b87]" />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <Badge variant="secondary" className="shrink-0">
+        {badge}
+      </Badge>
+    </TabsTrigger>
+  )
+}
+
+function HistoryWorkspace({
+  jobs,
+  currentJobId,
+  onOpen,
+  onOpenDrawer,
+}: {
+  jobs: AuditHistoryJob[]
+  currentJobId: string | null
+  onOpen: (job: AuditHistoryJob) => void
+  onOpenDrawer: () => void
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle className="text-sm">历史结果</CardTitle>
+            <div className="mt-1 text-xs text-muted-foreground">最近记录可直接打开；重新分析等操作仍在历史抽屉中处理。</div>
+          </div>
+          <Button type="button" variant="outline" className="h-8 self-start sm:self-auto" onClick={onOpenDrawer}>
+            <Archive className="h-4 w-4" />
+            打开抽屉
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {jobs.length === 0 ? (
+          <div className="grid min-h-56 place-items-center rounded-md border border-dashed bg-muted/20 text-center text-sm text-muted-foreground">
+            暂无历史记录
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-md border bg-background">
+            <div className="divide-y">
+              {jobs.slice(0, 8).map((job) => (
+                <button
+                  key={job.id}
+                  type="button"
+                  className="grid w-full gap-3 px-4 py-3 text-left transition hover:bg-[#f6fbfd] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 md:grid-cols-[minmax(0,1fr)_auto] dark:hover:bg-muted/40"
+                  onClick={() => onOpen(job)}
+                >
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <FolderOpen className="h-4 w-4 shrink-0 text-[#176b87]" />
+                      <span className="truncate text-sm font-semibold">{job.filename}</span>
+                      {job.id === currentJobId ? <Badge variant="outline">当前</Badge> : null}
+                    </div>
+                    <div className="mt-1 truncate text-xs text-muted-foreground">
+                      {job.message} · 截止 {job.cutoff}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                    <Badge variant={job.status === "failed" ? "destructive" : "secondary"}>{statusLabel(job.status)}</Badge>
+                    <Badge variant={job.matches > 0 ? "destructive" : "outline"}>{job.matches} 命中</Badge>
+                    <Badge variant="outline">{job.needsReview} 复核</Badge>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -167,20 +293,15 @@ export function AuditCommandCenter({
   const [reanalyzingJobId, setReanalyzingJobId] = useState<string | null>(null)
   const [reanalysisNotice, setReanalysisNotice] = useState<ReanalysisNotice>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [workbenchTab, setWorkbenchTab] = useState<WorkbenchTab>(initialResult ? "results" : "progress")
   const [uploadOpen, setUploadOpen] = useState(!currentJob)
-  const [overviewOpen, setOverviewOpen] = useState(false)
   const [fileName, setFileName] = useState("")
   const [cutoff, setCutoff] = useState("2026-05-07")
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const summary = result?.summary ?? null
-  const progressPercent = uploadPercent > 0 && uploadPercent < 100
-    ? uploadPercent
-    : stage?.complete
-      ? 100
-      : stage
-        ? Math.min(stage.activeStep * 20, 86)
-        : 0
+  const progressPercent = workflowProgressPercent(stage, uploadPercent, providerProgress)
+  const activeHistoryCount = history.filter((job) => job.status === "queued" || job.status === "running").length
   const headline = useMemo(() => {
     if (!result) return currentJob ? currentJob.message : "上传 PDF 后开始检查"
     return result.summary.matches === 0 ? "当前任务无早于截止日期证件" : `发现 ${result.summary.matches} 项早于截止日期`
@@ -216,6 +337,7 @@ export function AuditCommandCenter({
       setDistribution(payload.distribution)
       setStage({ activeStep: 5, failed: false, complete: true, label: payload.job.message })
       setProviderProgress(null)
+      setWorkbenchTab("results")
       await Promise.all([refreshHistory(), refreshCurrentUser()])
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : "读取结果失败")
@@ -258,6 +380,7 @@ export function AuditCommandCenter({
       setStage({ activeStep: 5, failed: false, complete: true, label: payload.job.message })
       setProviderProgress(null)
       setUploadPercent(100)
+      setWorkbenchTab("results")
       await Promise.all([refreshHistory(), refreshCurrentUser()])
       setReanalysisNotice({
         jobId: payload.job.id,
@@ -329,6 +452,7 @@ export function AuditCommandCenter({
     setUploadPercent(0)
     setProviderProgress(null)
     setReanalysisNotice(null)
+    setWorkbenchTab("progress")
     setStage({ activeStep: 1, failed: false, complete: false, label: "正在创建上传会话" })
 
     try {
@@ -352,6 +476,7 @@ export function AuditCommandCenter({
       }
       await Promise.all([refreshHistory(), refreshCurrentUser()])
 
+      setUploadPercent(18)
       setStage({ activeStep: 1, failed: false, complete: false, label: "正在上传 PDF 到对象存储" })
       const uploadResponse = await fetchWithRetries(session.uploadUrl, {
         method: session.method,
@@ -367,7 +492,7 @@ export function AuditCommandCenter({
         return
       }
 
-      setUploadPercent(86)
+      setUploadPercent(34)
       setStage({ activeStep: 2, failed: false, complete: false, label: "正在提交 PaddleOCR 任务" })
       const submitResponse = await fetchWithRetries("/api/audit/cloud-uploads/paddleocr", {
         method: "POST",
@@ -384,6 +509,8 @@ export function AuditCommandCenter({
       }
 
       setCurrentJob(submitted.job)
+      setUploadPercent(42)
+      setStage({ activeStep: 3, failed: false, complete: false, label: "等待 PaddleOCR 解析进度" })
       await Promise.all([refreshHistory(), refreshCurrentUser()])
       void pollStatus(submitted.job)
     } catch (fetchError) {
@@ -411,6 +538,7 @@ export function AuditCommandCenter({
       setUploadPercent(100)
       setStage({ activeStep: 5, failed: false, complete: true, label: job.message })
       setProviderProgress(null)
+      setWorkbenchTab("results")
       void loadResult(job)
       return
     }
@@ -423,6 +551,7 @@ export function AuditCommandCenter({
         ? { activeStep: 3, failed: true, complete: false, label: job.message }
         : { activeStep: 3, failed: false, complete: false, label: job.message },
     )
+    setWorkbenchTab("progress")
     if (job.status !== "failed" && job.providerJobId) void pollStatus(job)
   }
 
@@ -501,7 +630,7 @@ export function AuditCommandCenter({
               <ThemeToggle />
               <Button variant="outline" className="h-9" onClick={() => setHistoryOpen(true)}>
                 <Archive className="h-4 w-4" />
-                历史
+                历史抽屉
                 <Badge variant="secondary" className="ml-1">
                   {history.length}
                 </Badge>
@@ -531,46 +660,53 @@ export function AuditCommandCenter({
             </Alert>
           ) : null}
 
-          <Card className="mx-auto mb-5 max-w-6xl overflow-hidden">
-            <CardHeader>
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <CardTitle className="text-sm">任务流水线</CardTitle>
-                    <Badge variant="outline">{progressPercent}%</Badge>
-                  </div>
-                  {currentJob ? (
-                    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      <span className="inline-flex min-w-0 items-center gap-1.5">
-                        <FolderOpen className="h-3.5 w-3.5 shrink-0 text-[#176b87]" />
-                        <span className="max-w-full truncate">{currentJob.filename}</span>
-                      </span>
-                      <span className="inline-flex items-center gap-1.5">
-                        <CalendarClock className="h-3.5 w-3.5" />
-                        截止 {currentJob.cutoff}
-                      </span>
-                    </div>
-                  ) : null}
-                </div>
-                <div className="max-w-2xl text-xs leading-5 text-muted-foreground xl:text-right">
-                  {stage?.complete ? "报告已生成" : stage?.label || currentJob?.message || "等待上传 PDF 后开始云端处理"}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <ProgressSteps stage={stage} providerProgress={providerProgress} />
-            </CardContent>
-          </Card>
+          <Tabs value={workbenchTab} onValueChange={(value) => setWorkbenchTab(value as WorkbenchTab)} className="mx-auto max-w-6xl space-y-5">
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0 lg:grid-cols-4">
+              <WorkbenchTabTrigger value="progress" icon={Activity} label="进度" badge={`${progressPercent}%`} />
+              <WorkbenchTabTrigger value="overview" icon={BarChart3} label="概览" badge={result ? `${summaryValue(summary, "validity_candidates")} 项` : "待生成"} />
+              <WorkbenchTabTrigger value="results" icon={TableProperties} label="结果" badge={result ? `${summaryValue(summary, "matches")} 命中` : "待查看"} disabled={!result} />
+              <WorkbenchTabTrigger value="history" icon={Archive} label="历史" badge={activeHistoryCount > 0 ? `${activeHistoryCount} 运行中` : `${history.length} 条`} />
+            </TabsList>
 
-          <Card className="mb-5">
-            <CardHeader>
-              <div className="flex items-center justify-between gap-3">
-                <CardTitle className="text-sm">审计概览</CardTitle>
-                <CollapseButton open={overviewOpen} onClick={() => setOverviewOpen((open) => !open)} />
-              </div>
-            </CardHeader>
-            {overviewOpen ? (
-              <CardContent className="space-y-5">
+            <TabsContent value="progress">
+              <Card className="overflow-hidden">
+                <CardHeader>
+                  <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <CardTitle className="text-sm">任务流水线</CardTitle>
+                        <Badge variant="outline">{progressPercent}%</Badge>
+                      </div>
+                      {currentJob ? (
+                        <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                          <span className="inline-flex min-w-0 items-center gap-1.5">
+                            <FolderOpen className="h-3.5 w-3.5 shrink-0 text-[#176b87]" />
+                            <span className="max-w-full truncate">{currentJob.filename}</span>
+                          </span>
+                          <span className="inline-flex items-center gap-1.5">
+                            <CalendarClock className="h-3.5 w-3.5" />
+                            截止 {currentJob.cutoff}
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="max-w-2xl text-xs leading-5 text-muted-foreground xl:text-right">
+                      {stage?.complete ? "报告已生成" : stage?.label || currentJob?.message || "等待上传 PDF 后开始云端处理"}
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <ProgressSteps stage={stage} providerProgress={providerProgress} overallPercent={progressPercent} />
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="overview">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm">审计概览</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-5">
                 <div className="grid gap-3 md:grid-cols-5">
                   {[
                     ["PDF 页数", result?.manifest?.page_count ?? summaryValue(summary, "pages_ocr")],
@@ -615,11 +751,18 @@ export function AuditCommandCenter({
                   </div>
                   <ResultDistributionChart data={distribution} />
                 </div>
-              </CardContent>
-            ) : null}
-          </Card>
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-          <ResultTable result={result} />
+            <TabsContent value="results">
+              <ResultTable result={result} />
+            </TabsContent>
+
+            <TabsContent value="history">
+              <HistoryWorkspace jobs={history} currentJobId={currentJob?.id ?? null} onOpen={openHistoryJob} onOpenDrawer={() => setHistoryOpen(true)} />
+            </TabsContent>
+          </Tabs>
         </section>
 
         <HistoryPanel

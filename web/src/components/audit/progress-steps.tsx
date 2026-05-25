@@ -106,12 +106,14 @@ function ProviderProgressPanel({ progress }: { progress: PaddleOcrProviderProgre
 export function ProgressSteps({
   stage,
   providerProgress,
+  overallPercent,
 }: {
   stage: StageState | null
   providerProgress?: PaddleOcrProviderProgress | null
+  overallPercent?: number
 }) {
   const activeStep = stage?.activeStep ?? 0
-  const percent = stage?.complete ? 100 : stage ? Math.min(stage.activeStep * 20, 86) : 0
+  const percent = overallPercent ?? (stage?.complete ? 100 : stage ? Math.min(stage.activeStep * 20, 86) : 0)
   const isRunning = activeStep > 0 && !stage?.complete && !stage?.failed
 
   return (
