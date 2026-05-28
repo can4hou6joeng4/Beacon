@@ -45,7 +45,7 @@ two driver implementations aligned manually:
 | `jobs` | audit DB | audit job lifecycle, result summaries, object keys, ownership |
 | `users` | auth DB | first-party account records |
 | `sessions` | auth DB | hashed session tokens and expiry |
-| `user_quotas` | auth DB | configured lifetime quota limits |
+| `user_quotas` | auth DB | configured quota limits |
 | `quota_ledger` | auth DB | append-only quota reserve/consume/refund/adjust entries |
 
 Job ownership is enforced through `jobs.user_id`. Admins may list/read across
@@ -168,7 +168,11 @@ Rules:
 
 ## Quota Ledger Contract
 
-Quota usage is derived from `quota_ledger`, not from mutable counters.
+Quota usage is derived from `quota_ledger`, not from mutable counters. The
+current app treats upload bytes, OCR job count, and OCR page count as daily
+resources: quota snapshots and enforcement count ledger rows in the current UTC
+day window only. Historical rows stay in the append-only ledger for audit and
+per-job idempotency.
 
 | Action | Sign |
 | --- | --- |
@@ -187,6 +191,8 @@ Important invariants:
   count.
 
 Use `getJobLedgerAmount(...)` to make retry/refund paths idempotent.
+`getJobLedgerAmount(...)` intentionally remains job-scoped rather than
+day-windowed so retries can still see previous ledger rows for the same job.
 
 ## Tests Required
 

@@ -136,6 +136,8 @@ Rules:
 - Consume OCR page quota based on extracted/known page count deltas.
 - Refund quota through ledger entries when a reserved/consumed operation fails
   and the existing flow calls for a refund.
+- Enforce daily quota by computing usage from the current UTC day's ledger
+  rows; do not require a scheduled reset job for normal daily recovery.
 - Never update usage totals directly; use append-only `quota_ledger` rows.
 
 Limits are enforced in `web/src/lib/auth.ts` and constants live in

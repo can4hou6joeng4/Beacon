@@ -17,6 +17,7 @@ import {
   type UserCredentials,
 } from "./auth-db"
 import type { AppUser, AuthContext, AuthSession, QuotaAction, QuotaResource, UserQuota } from "./auth-types"
+import { currentUtcDayQuotaWindow } from "./quota-period"
 
 type UserRow = {
   id: string
@@ -208,6 +209,7 @@ export function createAuthDbForPath(dbPath: string): AuthDb {
     async getQuotaSnapshot(userId: string) {
       const quotaRow = db.prepare("SELECT * FROM user_quotas WHERE user_id = ?").get(userId) as QuotaRow | undefined
       if (!quotaRow) return emptyQuotaSnapshot(userId)
+      const usageWindow = currentUtcDayQuotaWindow()
       const usageRow = db.prepare(`
         SELECT
           COALESCE(SUM(CASE WHEN resource = 'upload_bytes' THEN signed_amount ELSE 0 END), 0) AS upload_bytes,
@@ -221,9 +223,9 @@ export function createAuthDbForPath(dbPath: string): AuthDb {
               ELSE amount
             END AS signed_amount
           FROM quota_ledger
-          WHERE user_id = ?
+          WHERE user_id = ? AND created_at >= ? AND created_at < ?
         )
-      `).get(userId) as UsageRow | undefined
+      `).get(userId, usageWindow.startIso, usageWindow.endIso) as UsageRow | undefined
       const quota = mapQuota(quotaRow)
       const usage = {
         uploadBytes: Number(usageRow?.upload_bytes ?? 0),

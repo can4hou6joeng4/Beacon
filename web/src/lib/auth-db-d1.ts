@@ -15,6 +15,7 @@ import {
 } from "./auth-db"
 import type { AppUser, AuthSession, QuotaAction, QuotaResource, UserQuota, UserQuotaSnapshot } from "./auth-types"
 import type { D1DatabaseLike } from "./cloudflare-env"
+import { currentUtcDayQuotaWindow } from "./quota-period"
 
 type UserRow = {
   id: string
@@ -198,6 +199,7 @@ export function createAuthD1Db(db: unknown): AuthDb {
     async getQuotaSnapshot(userId: string) {
       const quotaRow = await d1.prepare("SELECT * FROM user_quotas WHERE user_id = ?").bind(userId).first<QuotaRow>()
       if (!quotaRow) return emptyQuotaSnapshot(userId)
+      const usageWindow = currentUtcDayQuotaWindow()
       const usageRow = await d1.prepare(`
         SELECT
           COALESCE(SUM(CASE WHEN resource = 'upload_bytes' THEN signed_amount ELSE 0 END), 0) AS upload_bytes,
@@ -211,9 +213,9 @@ export function createAuthD1Db(db: unknown): AuthDb {
               ELSE amount
             END AS signed_amount
           FROM quota_ledger
-          WHERE user_id = ?
+          WHERE user_id = ? AND created_at >= ? AND created_at < ?
         )
-      `).bind(userId).first<UsageRow>()
+      `).bind(userId, usageWindow.startIso, usageWindow.endIso).first<UsageRow>()
       const quota = mapQuota(quotaRow)
       const usage = {
         uploadBytes: Number(usageRow?.upload_bytes ?? 0),

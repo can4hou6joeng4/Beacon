@@ -13,6 +13,7 @@ function tempDbPath(): string {
 }
 
 afterEach(() => {
+  vi.useRealTimers()
   if (originalAuditDbPath === undefined) {
     delete process.env.AUDIT_DB_PATH
   } else {
@@ -24,6 +25,72 @@ afterEach(() => {
 })
 
 describe("quota service", () => {
+  it("resets daily quota usage by ignoring previous UTC day ledger entries", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-28T08:30:00.000Z"))
+    const dbPath = tempDbPath()
+    process.env.AUDIT_DB_PATH = dbPath
+    vi.resetModules()
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-05-28T08:30:00.000Z"))
+    const { createAuditDbForPath } = await import("../audit-db")
+    const { createAuthDbForPath } = await import("../auth-db")
+    const { reserveUploadQuota, ensureUserQuotaAvailable } = await import("../quota")
+
+    const auditDb = await createAuditDbForPath(dbPath)
+    const authDb = await createAuthDbForPath(dbPath)
+    const user = await authDb.createUser({
+      username: "daily_reset",
+      email: "daily-reset@example.com",
+      name: "Daily Reset",
+      role: "user",
+      passwordHash: "password-hash",
+      passwordSalt: "password-salt",
+      passwordIterations: 1_000,
+      quota: {
+        uploadBytesLimit: 100,
+        ocrJobsLimit: 1,
+        ocrPagesLimit: 5,
+      },
+    })
+    const yesterdayJob = await auditDb.createJob({ filename: "yesterday.pdf", cutoff: "2026-05-22", userId: user.id, uploadBytes: 100 })
+    vi.setSystemTime(new Date("2026-05-27T20:00:00.000Z"))
+    await authDb.addQuotaLedger({
+      userId: user.id,
+      jobId: yesterdayJob.id,
+      resource: "upload_bytes",
+      action: "reserve",
+      amount: 100,
+      reason: "previous_day_upload",
+    })
+
+    vi.setSystemTime(new Date("2026-05-28T08:30:00.000Z"))
+    await expect(authDb.getQuotaSnapshot(user.id)).resolves.toMatchObject({
+      usage: { uploadBytes: 0 },
+      remaining: { uploadBytes: 100 },
+    })
+    await expect(ensureUserQuotaAvailable(user.id, "upload_bytes", 100)).resolves.toBeUndefined()
+
+    const todayJob = await auditDb.createJob({ filename: "today.pdf", cutoff: "2026-05-22", userId: user.id, uploadBytes: 100 })
+    const context: AuthContext = {
+      user,
+      quota: user.quota,
+      session: {
+        id: "session",
+        userId: user.id,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        createdAt: new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
+      },
+    }
+    await reserveUploadQuota({ context, jobId: todayJob.id, bytes: 100 })
+
+    await expect(authDb.getQuotaSnapshot(user.id)).resolves.toMatchObject({
+      usage: { uploadBytes: 100 },
+      remaining: { uploadBytes: 0 },
+    })
+  })
+
   it("consumes OCR job/page quota idempotently and blocks exhausted resources", async () => {
     const dbPath = tempDbPath()
     process.env.AUDIT_DB_PATH = dbPath
