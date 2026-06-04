@@ -19,9 +19,10 @@ Reference files:
 | Result/download routes | `web/src/app/api/audit/jobs/[id]/**/route.ts` |
 | Wrangler bindings | `web/wrangler.jsonc` |
 
-The current production driver is `r2-binding`. The older S3 presigned helper
-still exists for compatibility/tests, but production should use the Worker R2
-binding.
+The current production driver remains `r2-binding` so server-side artifact
+reads/writes use the native `AUDIT_BUCKET` binding. Large browser PDF uploads
+should use direct R2 presigned PUT URLs whenever the R2 S3 signing config is
+present; otherwise the Worker upload route remains as a fallback.
 
 ## Object Key Contract
 
@@ -48,9 +49,14 @@ Rules:
 1. Authenticated user calls `POST /api/audit/cloud-uploads`.
 2. Route validates filename, size, content type, cutoff, quota, and R2 config.
 3. Route creates a D1 job row and reserves upload quota.
-4. Browser uploads the PDF through the returned upload target.
+4. Browser uploads the PDF through the returned upload target:
+   - `uploadMode=r2-presigned`: browser PUTs directly to R2 through a short-lived
+     signed URL.
+   - `uploadMode=worker`: browser PUTs to the Worker fallback route.
 5. Browser calls `POST /api/audit/cloud-uploads/paddleocr`.
-6. Server fetches the R2 object as a Blob and submits it to PaddleOCR file mode.
+6. Server submits PaddleOCR work:
+   - `r2-presigned`: create a short-lived signed GET URL and submit URL mode.
+   - `worker`: fetch the R2 object as a Blob and submit file mode.
 7. Server stores provider job ID/status in D1.
 
 For `r2-binding` production uploads, the Worker upload route should pass
@@ -88,6 +94,7 @@ Quota must be checked before expensive provider work.
 
 - `putCloudObjectStream({ objectKey, stream, contentType, config, bucket? }) ->
   Promise<void>`
+- `getCloudDirectUploadMode(config) -> "r2-presigned" | "worker"`
 - `PUT /api/audit/cloud-uploads/{jobId}/file` accepts an authenticated PDF
   request body and returns `{ job, objectKey, size }`.
 
@@ -98,13 +105,20 @@ Quota must be checked before expensive provider work.
 - `Content-Length`, if present, must be positive, within 100MB, and equal to
   `jobs.upload_bytes`.
 - The route emits `Server-Timing` entries for `r2_put` and `d1_status`.
+- Direct upload mode requires `AUDIT_OBJECT_STORE_ENDPOINT`,
+  `AUDIT_OBJECT_BUCKET`, `AUDIT_OBJECT_ACCESS_KEY_ID`, and
+  `AUDIT_OBJECT_SECRET_ACCESS_KEY`.
+- The R2 bucket must allow CORS for `PUT`, `GET`, and `HEAD` from
+  `https://pdf-audit.bobochang.cn`.
 
 ### 4. Validation & Error Matrix
 
 | Condition | Error |
 | --- | --- |
 | Missing job or wrong owner | `404 任务不存在` |
-| Complete/failed/provider-attached job | `409 当前任务状态不允许上传 PDF` |
+| Failed upload session | `409 UPLOAD_SESSION_FAILED` with a message telling the user quota was refunded and a new upload is required |
+| Completed job | `409 UPLOAD_SESSION_COMPLETED` with a message telling the user to start a new check |
+| Provider-attached job | `409 UPLOAD_ALREADY_SUBMITTED` with a message telling the user to follow task progress instead of re-uploading |
 | Invalid content type | `400 INVALID_UPLOAD_TYPE` |
 | Empty body or zero length | `400 EMPTY_UPLOAD` |
 | Size exceeds 100MB | `400 UPLOAD_TOO_LARGE` |
@@ -112,16 +126,21 @@ Quota must be checked before expensive provider work.
 
 ### 5. Good/Base/Bad Cases
 
-- Good: browser sends `Content-Length` and route streams directly into R2.
-- Base: browser omits `Content-Length`; route still streams body and reports the
-  session size.
+- Good: browser uploads large PDFs directly to R2 using `uploadMode=r2-presigned`.
+- Base: if S3 signing config is missing, browser uses the Worker fallback route;
+  the route streams the body and reports the session size.
 - Bad: route calls `request.blob()` for production upload and buffers the full
   PDF in Worker memory.
+- Bad: browser retries the same Worker PUT upload after the route has marked the
+  job failed; this hides the original R2 write failure behind a stale-session
+  `409`.
 
 ### 6. Tests Required
 
 - `cloud-object-store.test.ts` covers `putCloudObjectStream(...)` forwarding the
   stream to the R2 bucket.
+- `cloud-object-store.test.ts` covers direct upload mode detection from S3
+  signing config.
 - Route behavior changes should cover size/type/session mismatch if a route test
   harness is added.
 
@@ -140,6 +159,15 @@ await putCloudObject({ objectKey, content: blob, contentType, config })
 if (!request.body) throw new AppError("上传请求缺少文件内容", { status: 400 })
 await putCloudObjectStream({ objectKey, stream: request.body, contentType, config })
 ```
+
+For the browser flow, create/upload/submit may use retry differently:
+
+- Upload session creation and PaddleOCR submission can use bounded retries for
+  transient 5xx responses.
+- The PDF `PUT /api/audit/cloud-uploads/{jobId}/file` request should not be
+  automatically retried with the same job ID. If it fails, surface the response
+  `code`/`error`, refresh quota/history, and ask the user to start a new upload
+  session.
 
 ## R2 Free-Tier Boundary
 

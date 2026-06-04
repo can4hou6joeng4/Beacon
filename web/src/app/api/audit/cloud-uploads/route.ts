@@ -7,6 +7,7 @@ import {
   createCloudObjectStoreConfig,
   createPresignedPutUrl,
   generateAuditObjectKey,
+  getCloudDirectUploadMode,
   validateCloudUploadInput,
 } from "@/lib/cloud-object-store"
 import { ensureQuotaAvailable, reserveUploadQuota } from "@/lib/quota"
@@ -37,7 +38,8 @@ export async function POST(request: Request) {
       uploadBytes: input.size,
     }), "create job")
     await timing.measure("quota_reserve", () => reserveUploadQuota({ context, jobId: job.id, bytes: input.size }), "reserve upload quota")
-    const upload = config.driver === "r2-binding"
+    const uploadMode = getCloudDirectUploadMode(config)
+    const upload = uploadMode === "worker"
       ? {
           url: `/api/audit/cloud-uploads/${encodeURIComponent(job.id)}/file`,
           expiresAt: new Date(Date.now() + config.uploadExpiresSeconds * 1000).toISOString(),
@@ -51,6 +53,7 @@ export async function POST(request: Request) {
       uploadExpiresAt: upload.expiresAt,
       method: "PUT",
       headers: { "Content-Type": input.contentType },
+      uploadMode,
     }), timing)
   } catch (error) {
     return jsonError(error, "创建云端上传会话失败")

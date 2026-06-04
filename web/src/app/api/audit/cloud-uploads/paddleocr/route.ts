@@ -9,6 +9,7 @@ import {
   createCloudObjectStoreConfig,
   createPresignedGetUrl,
   fetchCloudObjectBlob,
+  getCloudDirectUploadMode,
 } from "@/lib/cloud-object-store"
 import { submitPaddleOcrFileJob, submitPaddleOcrUrlJob } from "@/lib/paddleocr"
 import { createPaddleOcrRuntimeConfig } from "@/lib/paddleocr-runtime"
@@ -58,8 +59,13 @@ export async function POST(request: Request) {
     await timing.measure("quota_consume_job", () => consumeOcrJobQuota({ context, jobId: job.id, userId: quotaUserId }), "consume ocr job quota")
     quotaRefund = { userId: quotaUserId, jobId: job.id }
     const paddleOcrConfig = await timing.measure("paddle_config", () => createPaddleOcrRuntimeConfig(), "provider config")
-    const submitted = await timing.measure("paddle_submit", async () => config.driver === "r2-binding"
-      ? submitPaddleOcrFileJob({
+    const uploadMode = getCloudDirectUploadMode(config)
+    const submitted = await timing.measure("paddle_submit", async () => uploadMode === "r2-presigned"
+      ? submitPaddleOcrUrlJob({
+          config: paddleOcrConfig,
+          fileUrl: createPresignedGetUrl({ objectKey, config }).url,
+        })
+      : submitPaddleOcrFileJob({
           filename: job.filename,
           config: paddleOcrConfig,
           file: (await fetchCloudObjectBlob({
@@ -67,10 +73,6 @@ export async function POST(request: Request) {
             config,
             fallbackContentType: "application/pdf",
           })).blob,
-        })
-      : submitPaddleOcrUrlJob({
-          config: paddleOcrConfig,
-          fileUrl: createPresignedGetUrl({ objectKey, config }).url,
         }), "submit provider job")
     const updated = await timing.measure("d1_provider_job", () => db.attachProviderJob(job.id, submitted.providerJobId), "attach provider job")
     quotaRefund = null

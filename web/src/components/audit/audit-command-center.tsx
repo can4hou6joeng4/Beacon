@@ -66,6 +66,11 @@ type CreatePayload = {
   error?: string
 }
 
+type ApiErrorPayload = {
+  error?: string
+  code?: string
+}
+
 type CloudUploadSessionPayload = {
   jobId: string
   objectKey: string
@@ -73,6 +78,7 @@ type CloudUploadSessionPayload = {
   uploadExpiresAt: string
   method: "PUT"
   headers: Record<string, string>
+  uploadMode?: "r2-presigned" | "worker"
   error?: string
 }
 
@@ -163,6 +169,25 @@ async function fetchWithRetries(input: RequestInfo | URL, init: RequestInit, att
     await new Promise((resolve) => window.setTimeout(resolve, Math.min(800 * attempt, 3200)))
   }
   throw lastError instanceof Error ? lastError : new Error("请求失败")
+}
+
+function uploadErrorMessage(payload: ApiErrorPayload | null, status: number, uploadMode: CloudUploadSessionPayload["uploadMode"]): string {
+  if (uploadMode === "r2-presigned" && !payload?.error) {
+    return `PDF 直传到云端存储失败：HTTP ${status}。请确认网络稳定后重试；如果持续失败，需要检查 R2 直传 CORS 或签名配置。`
+  }
+  if (payload?.code === "UPLOAD_SESSION_FAILED") {
+    return "这次上传没有成功写入云端存储，上传额度已自动回退。请重新选择 PDF 再发起一次检查。"
+  }
+  if (payload?.code === "UPLOAD_ALREADY_SUBMITTED") {
+    return "这个任务已经提交给 PaddleOCR 解析，不能重复上传 PDF。请查看当前任务进度或重新发起检查。"
+  }
+  if (payload?.code === "UPLOAD_SESSION_COMPLETED") {
+    return "这个任务已经完成，不能再上传 PDF。请重新发起新的检查任务。"
+  }
+  if (payload?.code === "UPLOAD_SESSION_STALE") {
+    return "这个上传会话已不可用，请重新选择 PDF 发起新的检查。"
+  }
+  return payload?.error || `对象存储上传失败：HTTP ${status}`
 }
 
 function CollapseButton({ open, onClick }: { open: boolean; onClick: () => void }) {
@@ -478,14 +503,14 @@ export function AuditCommandCenter({
 
       setUploadPercent(18)
       setStage({ activeStep: 1, failed: false, complete: false, label: "正在上传 PDF 到对象存储" })
-      const uploadResponse = await fetchWithRetries(session.uploadUrl, {
+      const uploadResponse = await fetch(session.uploadUrl, {
         method: session.method,
         headers: session.headers,
         body: file,
       })
       if (!uploadResponse.ok) {
-        const uploadError = (await uploadResponse.json().catch(() => null)) as { error?: string } | null
-        setError(uploadError?.error || `对象存储上传失败：HTTP ${uploadResponse.status}`)
+        const uploadError = (await uploadResponse.json().catch(() => null)) as ApiErrorPayload | null
+        setError(uploadErrorMessage(uploadError, uploadResponse.status, session.uploadMode))
         setIsUploading(false)
         setProviderProgress(null)
         setStage({ activeStep: 1, failed: true, complete: false, label: "上传失败" })

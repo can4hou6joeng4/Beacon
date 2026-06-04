@@ -22,6 +22,8 @@ export type PresignedObjectUrl = {
   expiresAt: string
 }
 
+export type CloudDirectUploadMode = "r2-presigned" | "worker"
+
 type CloudObjectPayload = string | ReadableStream | ArrayBuffer | Blob
 
 export type R2ObjectBodyLike = {
@@ -295,6 +297,17 @@ export function assertObjectStoreConfigured(config: CloudObjectStoreConfig): voi
   }
 }
 
+export function getCloudDirectUploadMode(config: CloudObjectStoreConfig): CloudDirectUploadMode {
+  return hasS3SigningConfig(config) ? "r2-presigned" : "worker"
+}
+
+export function assertPresignedUrlConfigured(config: CloudObjectStoreConfig): void {
+  const missing = missingS3SigningConfig(config)
+  if (missing.length > 0) {
+    throw new Error(`Missing presigned object storage configuration: ${missing.join(", ")}`)
+  }
+}
+
 export function assertSafeObjectKey(objectKey: string, prefix: string): void {
   const normalizedPrefix = `${normalizePrefix(prefix)}/`
   if (!objectKey.startsWith(normalizedPrefix)) {
@@ -306,7 +319,7 @@ export function assertSafeObjectKey(objectKey: string, prefix: string): void {
 }
 
 function createPresignedObjectUrl(input: PresignInput): string {
-  assertObjectStoreConfigured(input.config)
+  assertPresignedUrlConfigured(input.config)
   assertSafeObjectKey(input.objectKey, input.config.prefix)
 
   const now = input.now || new Date()
@@ -344,6 +357,19 @@ function createPresignedObjectUrl(input: PresignInput): string {
   const signingKey = getSigningKey(input.config.secretAccessKey, dateStamp, input.config.region)
   const signature = hmacHex(signingKey, stringToSign)
   return `${input.config.endpoint}${encodedPath}?${canonicalQuery}&X-Amz-Signature=${signature}`
+}
+
+function hasS3SigningConfig(config: CloudObjectStoreConfig): boolean {
+  return missingS3SigningConfig(config).length === 0
+}
+
+function missingS3SigningConfig(config: CloudObjectStoreConfig): string[] {
+  return [
+    ["AUDIT_OBJECT_STORE_ENDPOINT", config.endpoint],
+    ["AUDIT_OBJECT_BUCKET", config.bucket],
+    ["AUDIT_OBJECT_ACCESS_KEY_ID", config.accessKeyId],
+    ["AUDIT_OBJECT_SECRET_ACCESS_KEY", config.secretAccessKey],
+  ].filter(([, value]) => !value).map(([key]) => key)
 }
 
 function parseDriver(value: string | undefined): CloudObjectStoreDriver {
@@ -421,7 +447,11 @@ function encodeObjectKey(value: string): string {
 function canonicalQueryString(query: Array<[string, string]>): string {
   return query
     .map(([key, value]) => [encodeURIComponent(key), encodeURIComponent(value)] as const)
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([leftKey, leftValue], [rightKey, rightValue]) => {
+      if (leftKey !== rightKey) return leftKey < rightKey ? -1 : 1
+      if (leftValue === rightValue) return 0
+      return leftValue < rightValue ? -1 : 1
+    })
     .map(([key, value]) => `${key}=${value}`)
     .join("&")
 }

@@ -50,6 +50,9 @@ Production variables:
 | `NEXT_PUBLIC_AUDIT_RUNTIME_MODE` | `paddleocr` |
 | `AUDIT_DB_DRIVER` | `d1` |
 | `AUDIT_OBJECT_STORE_DRIVER` | `r2-binding` |
+| `AUDIT_OBJECT_STORE_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
+| `AUDIT_OBJECT_BUCKET` | `pdf-audit-artifacts` |
+| `AUDIT_OBJECT_REGION` | `auto` |
 | `AUDIT_OBJECT_PREFIX` | `jobs` |
 | `PADDLEOCR_API_BASE_URL` | `https://paddleocr.aistudio-app.com/api/v2/ocr` |
 | `PADDLEOCR_MODEL` | `PaddleOCR-VL-1.5` |
@@ -61,9 +64,15 @@ Required Worker secrets:
 | --- | --- |
 | `AUTH_BOOTSTRAP_TOKEN` | One-time first-admin bootstrap guard |
 | `PADDLEOCR_API_TOKEN` | PaddleOCR provider authorization |
+| `AUDIT_OBJECT_ACCESS_KEY_ID` | R2 S3 API access key for browser direct upload signing |
+| `AUDIT_OBJECT_SECRET_ACCESS_KEY` | R2 S3 API secret key for browser direct upload signing |
 
 Never commit secrets or copy them into spec files, docs, screenshots, source, or
 `NEXT_PUBLIC_*` variables.
+
+When the two R2 S3 signing secrets are present, `POST /api/audit/cloud-uploads`
+returns `uploadMode=r2-presigned` and the browser uploads large PDFs directly to
+R2. Without those secrets the app falls back to the Worker upload route.
 
 ## Local/Test Fallbacks
 

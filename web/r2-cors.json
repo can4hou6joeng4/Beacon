@@ -1,0 +1,23 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": [
+          "https://pdf-audit.bobochang.cn"
+        ],
+        "methods": [
+          "PUT",
+          "GET",
+          "HEAD"
+        ],
+        "headers": [
+          "content-type"
+        ]
+      },
+      "exposeHeaders": [
+        "etag"
+      ],
+      "maxAgeSeconds": 3600
+    }
+  ]
+}

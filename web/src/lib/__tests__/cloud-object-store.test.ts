@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest"
 import {
   assertSafeObjectKey,
   createCloudObjectStoreConfig,
-  fetchCloudObjectBlob,
   createPresignedGetUrl,
   createPresignedPutUrl,
-  siblingObjectKey,
+  fetchCloudObjectBlob,
+  getCloudDirectUploadMode,
   generateAuditObjectKey,
   putCloudObject,
   putCloudObjectStream,
+  siblingObjectKey,
   type R2BucketLike,
   validateCloudUploadInput,
 } from "../cloud-object-store"
@@ -33,6 +34,14 @@ describe("cloud object store config", () => {
       uploadExpiresSeconds: 900,
       downloadExpiresSeconds: 3600,
     })
+  })
+
+  it("enables direct upload mode when S3 signing config is present", () => {
+    expect(getCloudDirectUploadMode(createCloudObjectStoreConfig(baseEnv))).toBe("r2-presigned")
+    expect(getCloudDirectUploadMode(createCloudObjectStoreConfig({
+      AUDIT_OBJECT_STORE_DRIVER: "r2-binding",
+      AUDIT_OBJECT_PREFIX: "jobs",
+    }))).toBe("worker")
   })
 })
 
@@ -77,6 +86,7 @@ describe("presigned urls", () => {
     expect(put.url).toContain("X-Amz-Algorithm=AWS4-HMAC-SHA256")
     expect(put.url).toContain("X-Amz-Signature=")
     expect(put.url).toContain("response-content-type=application%2Fpdf")
+    expect(put.url.indexOf("X-Amz-SignedHeaders=host")).toBeLessThan(put.url.indexOf("response-content-type=application%2Fpdf"))
 
     expect(get.expiresAt).toBe("2026-05-22T10:00:00.000Z")
     expect(get.url).toContain("X-Amz-Signature=")
