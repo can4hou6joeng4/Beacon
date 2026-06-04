@@ -14,7 +14,7 @@ Reference imports:
 ```ts
 import type { AuditHistoryJob, AuditResult, AuditSummary } from "@/lib/audit-types"
 import type { PublicUser } from "@/lib/auth-types"
-import type { StageState } from "@/lib/audit-python"
+import type { StageState } from "@/lib/audit-progress"
 ```
 
 Small route-local payload wrappers are acceptable in components when they add an

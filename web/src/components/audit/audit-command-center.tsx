@@ -34,7 +34,7 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import type { StageState } from "@/lib/audit-python"
+import type { StageState } from "@/lib/audit-progress"
 import type { AuditHistoryJob, AuditResult, AuditStatusValue, AuditSummary } from "@/lib/audit-types"
 import type { PublicUser } from "@/lib/auth-types"
 import type { PaddleOcrProviderProgress } from "@/lib/paddleocr"
@@ -347,7 +347,7 @@ export function AuditCommandCenter({
   }
 
   async function loadResult(job: AuditHistoryJob) {
-    if (job.runtime !== "paddleocr" && !job.pythonJobId) return
+    if (job.runtime !== "paddleocr" || !job.providerJobId) return
     setError("")
     setLoadingResultJobId(job.id)
     try {

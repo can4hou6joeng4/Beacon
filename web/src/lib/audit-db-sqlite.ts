@@ -62,7 +62,7 @@ export function createAuditDbForPath(dbPath: string): AuditDb {
         id,
         input.userId ?? null,
         input.objectKey ?? null,
-        input.runtime ?? "local-python",
+        input.runtime ?? "paddleocr",
         input.filename,
         input.cutoff,
         now,
@@ -70,16 +70,6 @@ export function createAuditDbForPath(dbPath: string): AuditDb {
         input.uploadBytes ?? 0,
       )
       return mapRow(db.prepare("SELECT * FROM jobs WHERE id = ?").get(id) as JobRow)
-    },
-
-    async attachPythonJob(id: string, pythonJobId: string) {
-      const now = new Date().toISOString()
-      db.prepare("UPDATE jobs SET python_job_id = ?, status = 'queued', message = '任务已创建', updated_at = ? WHERE id = ?").run(
-        pythonJobId,
-        now,
-        id,
-      )
-      return this.getJob(id)
     },
 
     async attachProviderJob(id: string, providerJobId: string) {
@@ -186,11 +176,6 @@ export function createAuditDbForPath(dbPath: string): AuditDb {
       return row ? mapRow(row) : null
     },
 
-    async getJobByPythonId(pythonJobId: string) {
-      const row = db.prepare("SELECT * FROM jobs WHERE python_job_id = ?").get(pythonJobId) as JobRow | undefined
-      return row ? mapRow(row) : null
-    },
-
     async listJobs(limit = 20, user) {
       const rows = user?.role === "user"
         ? db.prepare("SELECT * FROM jobs WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(user.id, limit) as JobRow[]
@@ -208,7 +193,7 @@ function migrate(db: Database.Database) {
           python_job_id TEXT UNIQUE,
           provider_job_id TEXT,
           object_key TEXT,
-          runtime TEXT NOT NULL DEFAULT 'local-python',
+          runtime TEXT NOT NULL DEFAULT 'paddleocr',
           filename TEXT NOT NULL,
       cutoff TEXT NOT NULL,
       status TEXT NOT NULL,
@@ -235,7 +220,7 @@ function migrate(db: Database.Database) {
   addColumnIfMissing(db, "jobs", "ocr_total_pages", "INTEGER NOT NULL DEFAULT 0")
   addColumnIfMissing(db, "jobs", "provider_job_id", "TEXT")
   addColumnIfMissing(db, "jobs", "object_key", "TEXT")
-  addColumnIfMissing(db, "jobs", "runtime", "TEXT NOT NULL DEFAULT 'local-python'")
+  addColumnIfMissing(db, "jobs", "runtime", "TEXT NOT NULL DEFAULT 'paddleocr'")
   addColumnIfMissing(db, "jobs", "user_id", "TEXT")
   addColumnIfMissing(db, "jobs", "upload_bytes", "INTEGER NOT NULL DEFAULT 0")
   addColumnIfMissing(db, "jobs", "ocr_pages_used", "INTEGER NOT NULL DEFAULT 0")

@@ -248,8 +248,8 @@ Every write operation should:
 
 ### 2. Signatures
 
-- Runtime mode selector: `AUDIT_RUNTIME_MODE=local-python | paddleocr | provider-ocr | container-ocr | remote-macos`
-- Local fallback endpoint: `PYTHON_AUDIT_BASE_URL=<http-url>`
+- Runtime mode selector: `AUDIT_RUNTIME_MODE=paddleocr`
+- Retired local endpoint signal: legacy Python/macOS OCR routes return `410` and must not be used as a fallback.
 - Object storage contract:
   - `jobs/{jobId}/input.pdf`
   - `jobs/{jobId}/manifest.json`
@@ -302,7 +302,8 @@ Every write operation should:
 - PaddleOCR URL-mode job submission must reject non-HTTP(S) `fileUrl` values.
 - Cloud upload must reject non-PDF file names, files over the configured size limit, and object keys outside the configured prefix.
 - PaddleOCR `done` results must be normalized from JSONL `result.layoutParsingResults[].markdown.text` before reuse by existing expiry extraction.
-- Keep local mode working until cloud OCR parity is verified with real PDFs.
+- Keep local/test adapters limited to SQLite and test doubles; do not restore a
+  local Python/Swift OCR runtime.
 
 ### 4. Validation & Error Matrix
 
@@ -321,7 +322,8 @@ Every write operation should:
 ### 5. Good/Base/Bad Cases
 
 - Good: Cloud front door stores PDFs in object storage, records jobs in cloud DB, starts async OCR, and updates status when artifacts are ready.
-- Base: Local Python/Swift service remains the fallback profile behind `PYTHON_AUDIT_BASE_URL`.
+- Base: SQLite remains available as a local/test database fallback while OCR
+  execution stays on PaddleOCR.
 - Bad: Deploy the Next.js app to serverless while keeping `better-sqlite3`, local upload chunk files, and a macOS Swift subprocess assumption.
 
 ### 6. Tests Required
@@ -348,8 +350,8 @@ local SQLite, and the Swift PDFKit/Vision OCR helper unchanged.
 
 ```text
 First split runtime state into object storage, cloud database, and an async OCR
-adapter. Keep the local Swift path as a fallback until cloud OCR parity is
-proved against real documents.
+adapter. After cloud OCR parity is accepted, retire local Swift/Python runtime
+paths instead of keeping them as a production fallback.
 ```
 
 ## References

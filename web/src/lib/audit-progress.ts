@@ -1,4 +1,4 @@
-import type { AuditSummary, PythonJobStatus } from "./audit-types"
+import type { AuditJobStatus, AuditSummary } from "./audit-types"
 
 export type StageState = {
   activeStep: number
@@ -7,7 +7,7 @@ export type StageState = {
   label: string
 }
 
-export function stageFromStatus(status: PythonJobStatus): StageState {
+export function stageFromStatus(status: AuditJobStatus): StageState {
   const label = status.message || status.status
   if (status.status === "queued") return { activeStep: 1, failed: false, complete: false, label }
   if (status.status === "running") return { activeStep: 3, failed: false, complete: false, label }

@@ -17,12 +17,12 @@ afterEach(() => {
 })
 
 describe("audit db", () => {
-  it("creates, attaches python job id, updates summary, and lists newest first", async () => {
+  it("creates paddleocr jobs by default, attaches provider job id, updates summary, and lists newest first", async () => {
     const db = await createAuditDbForPath(tempDbPath())
     const first = await db.createJob({ filename: "old.pdf", cutoff: "2026-05-07" })
     const second = await db.createJob({ filename: "投标文件.pdf", cutoff: "2026-05-07" })
 
-    await db.attachPythonJob(second.id, "6f6811c2c99949bc8b2c7a431cf5bc78")
+    await db.attachProviderJob(second.id, "paddle-job-list")
     await db.updateFromStatus(second.id, { status: "complete", message: "检查完成" })
     await db.updateFromResult(
       second.id,
@@ -42,10 +42,10 @@ describe("audit db", () => {
     const jobs = await db.listJobs()
     expect(jobs.map((job) => job.id)).toEqual([second.id, first.id])
     expect(jobs[0]).toMatchObject({
-      pythonJobId: "6f6811c2c99949bc8b2c7a431cf5bc78",
-      providerJobId: null,
+      pythonJobId: null,
+      providerJobId: "paddle-job-list",
       objectKey: null,
-      runtime: "local-python",
+      runtime: "paddleocr",
       filename: "投标文件.pdf",
       status: "complete",
       pagesOcr: 184,
@@ -59,7 +59,7 @@ describe("audit db", () => {
     const db = await createAuditDbForPath(tempDbPath())
     const job = await db.createJob({ filename: "投标文件.pdf", cutoff: "2026-05-22" })
 
-    await db.attachPythonJob(job.id, "6ab8a1ef300e4398a8729e3f39b7e3cc")
+    await db.attachProviderJob(job.id, "paddle-job-summary")
     const updated = await db.updateFromStatus(job.id, {
       status: "complete",
       message: "检查完成",
@@ -76,6 +76,9 @@ describe("audit db", () => {
     })
 
     expect(updated).toMatchObject({
+      runtime: "paddleocr",
+      providerJobId: "paddle-job-summary",
+      pythonJobId: null,
       status: "complete",
       pagesOcr: 225,
       certificatePages: 225,

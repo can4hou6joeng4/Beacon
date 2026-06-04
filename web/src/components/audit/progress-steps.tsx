@@ -1,6 +1,6 @@
 import { CheckCircle2, Circle, Clock3, FileSearch, Loader2, XCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { StageState } from "@/lib/audit-python"
+import type { StageState } from "@/lib/audit-progress"
 import type { PaddleOcrProviderProgress } from "@/lib/paddleocr"
 
 const steps = [

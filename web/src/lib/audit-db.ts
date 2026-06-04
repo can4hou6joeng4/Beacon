@@ -25,14 +25,12 @@ export type AuditStatusPatch = {
 
 export type AuditDb = {
   createJob(input: CreateJobInput): Promise<AuditHistoryJob>
-  attachPythonJob(id: string, pythonJobId: string): Promise<AuditHistoryJob | null>
   attachProviderJob(id: string, providerJobId: string): Promise<AuditHistoryJob | null>
   updateFromStatus(id: string, status: AuditStatusPatch): Promise<AuditHistoryJob | null>
   updateFromResult(id: string, summary: AuditSummary, manifest?: ManifestPatch): Promise<AuditHistoryJob | null>
   updateOcrPagesUsed(id: string, pages: number): Promise<AuditHistoryJob | null>
   getJob(id: string): Promise<AuditHistoryJob | null>
   getJobForUser(id: string, userId: string, role: "admin" | "user"): Promise<AuditHistoryJob | null>
-  getJobByPythonId(pythonJobId: string): Promise<AuditHistoryJob | null>
   listJobs(limit?: number, user?: { id: string; role: "admin" | "user" }): Promise<AuditHistoryJob[]>
 }
 

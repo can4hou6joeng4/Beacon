@@ -278,7 +278,7 @@ function migrate(db: Database.Database): void {
       python_job_id TEXT UNIQUE,
       provider_job_id TEXT,
       object_key TEXT,
-      runtime TEXT NOT NULL DEFAULT 'local-python',
+      runtime TEXT NOT NULL DEFAULT 'paddleocr',
       filename TEXT NOT NULL,
       cutoff TEXT NOT NULL,
       status TEXT NOT NULL,

@@ -47,7 +47,7 @@ export function createAuditD1Db(db: unknown): AuditDb {
         id,
         input.userId ?? null,
         input.objectKey ?? null,
-        input.runtime ?? "local-python",
+        input.runtime ?? "paddleocr",
         input.filename,
         input.cutoff,
         now,
@@ -55,14 +55,6 @@ export function createAuditD1Db(db: unknown): AuditDb {
         input.uploadBytes ?? 0,
       ).run()
       return requireJob(await this.getJob(id), id)
-    },
-
-    async attachPythonJob(id: string, pythonJobId: string) {
-      const now = new Date().toISOString()
-      await d1.prepare("UPDATE jobs SET python_job_id = ?, status = 'queued', message = '任务已创建', updated_at = ? WHERE id = ?")
-        .bind(pythonJobId, now, id)
-        .run()
-      return this.getJob(id)
     },
 
     async attachProviderJob(id: string, providerJobId: string) {
@@ -164,11 +156,6 @@ export function createAuditD1Db(db: unknown): AuditDb {
     async getJobForUser(id: string, userId: string, role: "admin" | "user") {
       if (role === "admin") return this.getJob(id)
       const row = await d1.prepare("SELECT * FROM jobs WHERE id = ? AND user_id = ?").bind(id, userId).first<JobRow>()
-      return row ? mapRow(row) : null
-    },
-
-    async getJobByPythonId(pythonJobId: string) {
-      const row = await d1.prepare("SELECT * FROM jobs WHERE python_job_id = ?").bind(pythonJobId).first<JobRow>()
       return row ? mapRow(row) : null
     },
 

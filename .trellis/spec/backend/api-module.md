@@ -20,8 +20,9 @@ The production API surface coordinates:
 - Cloudflare R2 PDF/artifact object storage,
 - PaddleOCR async job submission and polling.
 
-Legacy root-level Python/Swift files are historical/local tooling references,
-not the production business runtime.
+The previous root-level Python/Swift/local web runtime has been removed from
+source control. Retired local API routes may still return `410` compatibility
+responses, but new production behavior must use the Cloudflare/PaddleOCR path.
 
 ## Directory Structure
 

@@ -1,6 +1,6 @@
 export type AuditStatusValue = "queued" | "running" | "complete" | "failed" | "unknown"
 
-export type PythonJobStatus = {
+export type AuditJobStatus = {
   status: AuditStatusValue
   message?: string
   summary?: AuditSummary
@@ -60,6 +60,10 @@ export type AuditHistoryJob = {
   pythonJobId: string | null
   providerJobId: string | null
   objectKey: string | null
+  /**
+   * `local-python` is retained only for historical rows and retired endpoint
+   * compatibility. New jobs are created as `paddleocr`.
+   */
   runtime: "local-python" | "paddleocr"
   filename: string
   cutoff: string

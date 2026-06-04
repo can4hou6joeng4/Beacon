@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { resultDistribution, stageFromStatus } from "../audit-python"
+import { resultDistribution, stageFromStatus } from "../audit-progress"
 
 describe("stageFromStatus", () => {
   it("maps queued to upload stage", () => {

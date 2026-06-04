@@ -3,7 +3,7 @@ import { jsonError } from "@/lib/api-response"
 import { analyzePaddleOcrJsonl } from "@/lib/audit-analyzer"
 import { requireAuth } from "@/lib/auth"
 import { getAuditDb } from "@/lib/audit-db"
-import { stageFromStatus } from "@/lib/audit-python"
+import { stageFromStatus } from "@/lib/audit-progress"
 import {
   createCloudObjectStoreConfig,
   fetchCloudObjectText,

@@ -1,6 +1,6 @@
 import { analyzePaddleOcrJsonl } from "./audit-analyzer"
 import type { AuditDb } from "./audit-db"
-import { resultDistribution } from "./audit-python"
+import { resultDistribution } from "./audit-progress"
 import type { AuditHistoryJob, AuditResult } from "./audit-types"
 import { AppError } from "./app-error"
 import {

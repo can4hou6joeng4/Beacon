@@ -1,0 +1,5 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend production runtime and API boundary rules for retiring local OCR"}
+{"file": ".trellis/spec/backend/api-patterns.md", "reason": "Retired local endpoint and API route compatibility patterns"}
+{"file": ".trellis/spec/backend/environment.md", "reason": "Cloudflare-only runtime and local Python Swift retirement constraints"}
+{"file": ".trellis/spec/shared/code-quality.md", "reason": "Shared quality rules including no production dependency on local Python Swift services"}

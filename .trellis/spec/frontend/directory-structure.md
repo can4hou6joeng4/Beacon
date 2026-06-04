@@ -34,9 +34,9 @@ web/
 └── tsconfig.json
 ```
 
-The repository root still contains historical Python/Swift/local-web files. Do
-not extend those for production business behavior unless the user explicitly
-asks for local tooling work.
+The retired root-level Python/Swift/local-web runtime has been removed from
+source control. Do not add new production behavior outside `web/` unless a task
+explicitly designs a new package or tooling boundary.
 
 ## App Router Conventions
 

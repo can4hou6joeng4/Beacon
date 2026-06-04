@@ -6,9 +6,10 @@
 
 ## Production Runtime
 
-This project's business runtime is Cloudflare Workers through OpenNext. Local
-Python/Swift services, LaunchAgents, and Cloudflare Tunnel are historical
-development references, not production infrastructure.
+This project's business runtime is Cloudflare Workers through OpenNext. The
+previous local Python/Swift services, LaunchAgents, static workbench, and
+Cloudflare Tunnel scripts have been removed from source control and must not be
+reintroduced as production infrastructure.
 
 Production hostname:
 
@@ -83,7 +84,8 @@ Cloudflare:
 - `AUDIT_OBJECT_STORE_DRIVER=local` is not valid for cloud upload production.
 - `better-sqlite3` is a local/test dependency only.
 
-Do not revive the retired local business runtime for production traffic.
+Do not revive the retired local business runtime for production traffic. Local
+fallbacks are limited to test/development adapters such as SQLite.
 
 ## Misconfiguration Behavior
 

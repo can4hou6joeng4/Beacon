@@ -93,17 +93,9 @@ cloudflared tunnel login
 ~/.cloudflared/cert.pem
 ```
 
-当前已完成授权。然后在本项目中执行：
+历史上曾通过本项目的本机 Tunnel 脚本绑定该域名。该本机 Tunnel 运行方式已退役，当前仓库也不再包含 `deploy/local` 脚本。现在应在 Cloudflare 中将 `pdf-audit.bobochang.cn` 绑定到 Worker `pdf-certificate-expiry-checker`。
 
-```bash
-cd /Users/a1-6/Documents/pdf-certificate-expiry-checker
-./deploy/local/setup-named-tunnel.sh pdf-audit.bobochang.cn
-./deploy/local/pdf-audit-service.sh install
-```
-
-当前已执行完成。
-
-命名 Tunnel 信息：
+历史命名 Tunnel 信息：
 
 ```text
 Tunnel 名称: pdf-certificate-expiry-checker
@@ -135,6 +127,6 @@ curl -sS 'https://pdf-audit.bobochang.cn/api/audit/history?token=<pdf-checker-to
 
 - [x] 确认 `bobochang.cn` 当前 nameserver。
 - [x] 在本机执行 `cloudflared tunnel login` 并选择 `bobochang.cn`。
-- [x] 配置命名 Tunnel 到 `pdf-audit.bobochang.cn`。
-- [x] 更新 `docs/operations/cloudflare-named-tunnel.md` 的真实 Tunnel ID 和固定域名。
+- [x] 历史阶段曾配置命名 Tunnel 到 `pdf-audit.bobochang.cn`。
+- [x] 当前生产入口已迁移为 Cloudflare Worker custom domain。
 - [ ] 如仍需要清理旧账号，登录旧 Cloudflare 账号删除其中的 `bobochang.cn` Zone。

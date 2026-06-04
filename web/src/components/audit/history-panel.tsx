@@ -55,7 +55,7 @@ function JobRow({
 }) {
   const status = statusMeta(job.status)
   const StatusIcon = status.icon
-  const canOpen = Boolean(job.pythonJobId || job.providerJobId)
+  const canOpen = job.runtime === "paddleocr" && Boolean(job.providerJobId)
   const canReanalyze = job.status === "complete" && job.runtime === "paddleocr" && Boolean(job.objectKey)
   const busy = loading || reanalyzing
 

@@ -1,132 +1,101 @@
 # PDF 证件有效期检查工具
 
-本项目是一个 macOS 本机网页工具，用于上传带书签的 PDF，自动定位证件类书签页，使用 macOS PDFKit/Vision OCR 识别有效期，并按指定截止日期筛出过期风险。
+本项目是一个云端 PDF 证件有效期审计工具。用户上传带书签的 PDF 后，系统会将文件写入 Cloudflare R2，使用 PaddleOCR 异步识别证件页文本，将结果写入 Cloudflare D1/R2，并按指定截止日期输出过期风险、临近到期和需要人工复核的项目。
 
-## 启动
+生产入口：
 
-### 后台常驻运行（推荐给外部人员访问）
-
-当前已提供 macOS `launchd` 用户服务配置。安装后，Python OCR、Next.js 工作台和 Cloudflare Tunnel 会由系统后台托管，不依赖 Kaku/Codex 终端窗口；只要本机不关机、不重启、网络不断开，服务进程会自动保持运行或异常后重启。
-
-安装或刷新后台服务：
-
-```bash
-cd /Users/a1-6/Documents/pdf-certificate-expiry-checker
-./deploy/local/pdf-audit-service.sh install
+```text
+https://pdf-audit.bobochang.cn
 ```
 
-查看状态：
+当前生产运行时已经退役本机 Python/macOS OCR 服务，不再依赖 macOS PDFKit/Vision、`launchd`、Cloudflare Tunnel、根目录 Python 服务或本机静态页面。
+
+## 架构
+
+- `web/`：Next.js 16 App Router 应用，通过 OpenNext 部署到 Cloudflare Workers。
+- Cloudflare D1：保存用户、会话、额度、任务历史和任务状态。
+- Cloudflare R2：保存上传 PDF、PaddleOCR 原始 JSONL、`ocr.txt`、`matches.csv` 和 `result.json`。
+- PaddleOCR：异步 OCR provider，默认模型为 `PaddleOCR-VL-1.5`。
+- 旧本机 OCR API 路由保留为兼容信号，会返回 `410` 并提示使用云端上传流程。
+
+## 本地开发
 
 ```bash
-./deploy/local/pdf-audit-service.sh status
+cd /Users/bobochang/Documents/pdf-certificate-expiry-checker/web
+npm install
+npm run dev
 ```
 
-查看日志：
+打开：
+
+```text
+http://localhost:3000
+```
+
+本地开发默认使用 SQLite fallback。生产行为以 Cloudflare D1/R2/PaddleOCR 为准，涉及绑定、对象存储、OCR provider 或部署的改动需要额外运行 Cloudflare build。
+
+## Cloudflare 部署
+
+生产配置在：
+
+```text
+web/wrangler.jsonc
+web/env.cloud.example
+web/migrations/
+```
+
+常用命令：
 
 ```bash
-./deploy/local/pdf-audit-service.sh logs
+cd /Users/bobochang/Documents/pdf-certificate-expiry-checker/web
+npm run test
+npm run lint
+npm run build
+npm run cf:build
+env -u CLOUDFLARE_API_TOKEN npm run cf:deploy
 ```
 
-获取当前外网访问地址：
+`env -u CLOUDFLARE_API_TOKEN` 用于让 Wrangler 使用本机浏览器登录态，避免误用过期或权限不足的环境变量 token。
 
-```bash
-./deploy/local/pdf-audit-service.sh url
-```
+必须通过 Cloudflare secret/config 管理生产密钥，不要写入仓库：
 
-重启后台服务：
-
-```bash
-./deploy/local/pdf-audit-service.sh restart
-```
-
-停止后台服务：
-
-```bash
-./deploy/local/pdf-audit-service.sh stop
-```
-
-当前生产入口已迁移到 Cloudflare Worker 自定义域名：`https://pdf-audit.bobochang.cn/?token=<pdf-checker-token>`。真实访问口令通过 Cloudflare Worker secret `PDF_CHECKER_TOKEN` 管理，不写入仓库文件。
-
-### 云端迁移规划
-
-服务已经按云端优先路径迁移：保留 `pdf-audit.bobochang.cn` 作为 Cloudflare 前门，将 UI/API、文件存储、历史库迁到 Cloudflare Worker/R2/D1，并把 OCR 改造成 PaddleOCR-VL 异步 adapter。当前本机 OCR 路径只作为遗留参考，不再作为生产业务运行或回滚目标。
-
-详细可行性、目标架构、DNS 切换和回滚步骤见：
-
-```bash
-docs/operations/cloud-deployment-migration.md
-```
-
-### Next.js 审计工作台
-
-推荐使用新的 Next.js 工作台，它在保留本机 OCR 后端的同时提供阶段进度、历史记录、结果分布图和证据下钻。
-
-先启动后端 OCR 服务：
-
-```bash
-cd /Users/a1-6/Documents/pdf-certificate-expiry-checker
-PDF_CHECKER_TOKEN='换成一段足够长的口令' PYTHONPATH=src python3 run_local.py
-```
-
-再启动 Next.js 工作台：
-
-```bash
-cd /Users/a1-6/Documents/pdf-certificate-expiry-checker/web
-PDF_CHECKER_TOKEN='同一个口令' PYTHON_AUDIT_BASE_URL='http://127.0.0.1:8787' npm run dev
-```
-
-打开：`http://localhost:3000`
-
-固定域名共享给非本局域网用户时，Cloudflare Tunnel 指向 Next.js 端口 `127.0.0.1:3000`。相关配置和排障记录见 `docs/operations/cloudflare-named-tunnel.md`。
-
-临时 quick tunnel 备用命令：
-
-```bash
-cloudflared tunnel --protocol http2 --url http://127.0.0.1:3000
-```
-
-### 旧版静态页面
-
-```bash
-cd /Users/a1-6/Documents/pdf-certificate-expiry-checker
-PYTHONPATH=src python3 run_local.py
-```
-
-打开：`http://127.0.0.1:8787`
-
-默认只监听本机 `127.0.0.1`，上传的 PDF 和识别结果保存在项目内 `jobs/<job_id>/` 目录，不会上传到外部服务。
-
-如需通过 Cloudflare Tunnel 临时共享，建议设置访问口令：
-
-```bash
-PDF_CHECKER_TOKEN='换成一段足够长的口令' PYTHONPATH=src python3 run_local.py
-```
-
-访问时使用服务输出的 `/?token=...` 链接。
+- `AUTH_BOOTSTRAP_TOKEN`
+- `PADDLEOCR_API_TOKEN`
+- `AUDIT_OBJECT_ACCESS_KEY_ID`
+- `AUDIT_OBJECT_SECRET_ACCESS_KEY`
 
 ## 功能
 
 - 上传 PDF 并输入筛选截止日期。
-- 读取 PDF 书签，优先处理注册证、执业注册信息、身份证、资格证、职称证、学历证书、社保等证件页。
-- 使用 macOS Vision OCR 识别扫描件文字。
-- 输出三类结果：早于截止日期、临近到期、需要人工复核。
-- 支持下载 `matches.csv`、`result.json`、`ocr.txt`。
+- 将 PDF 写入 R2，并提交 PaddleOCR 异步解析。
+- 从 PaddleOCR markdown/JSONL 中提取证件有效期。
+- 输出早于截止日期、临近到期、需要人工复核和有效项目统计。
+- 支持历史记录、重新分析、下载 `matches.csv`、`result.json` 和 `ocr.txt`。
+- 支持用户登录、管理员用户管理和上传/OCR 额度控制。
 
-## 本机要求
+## 验证
 
-- macOS，且 Swift 可调用 `PDFKit`、`Vision`、`AppKit`。
-- Python 3.14 或兼容版本。
-- 浏览器访问本机服务。
-
-## 验证命令
+本地代码验证：
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests -v
-PYTHONPATH=src python3 - <<'PY'
-from pathlib import Path
-from pdf_expiry_checker.runner import create_job_dir, run_audit
-job = create_job_dir()
-result = run_audit(Path('/Users/a1-6/Documents/123.pdf'), '2026-05-22', job)
-print(result['summary'])
-PY
+cd /Users/bobochang/Documents/pdf-certificate-expiry-checker/web
+npm run test
+npm run lint
+npm run build
+npm run cf:build
 ```
+
+生产烟测：
+
+```bash
+curl -I https://pdf-audit.bobochang.cn/
+curl -fsS https://pdf-audit.bobochang.cn/api/auth/me
+```
+
+未登录访问 `/api/auth/me` 应返回 `401` JSON；如果无有效 session 却返回 `200`，属于认证回归。
+
+## 运维文档
+
+- `docs/operations/cloud-deployment-migration.md`：当前 Cloudflare-only 架构、部署和回滚说明。
+- `docs/operations/cloudflare-named-tunnel.md`：已退役的本机 Tunnel 历史记录，仅用于追溯。
+- `docs/operations/bobochang-cn-cloudflare-migration.md`：域名迁移历史记录。

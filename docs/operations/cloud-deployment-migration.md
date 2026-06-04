@@ -12,33 +12,29 @@ The production runtime is intentionally cloud-only:
 - OpenNext incremental cache assets are stored in the R2 bucket `pdf-audit-opennext-cache`.
 - Job history/status is stored in the D1 database `pdf-audit-db`.
 - OCR is submitted to PaddleOCR asynchronously with model `PaddleOCR-VL-1.5`.
-- Runtime secrets are Cloudflare Worker secrets: `PADDLEOCR_API_TOKEN` and `PDF_CHECKER_TOKEN`.
+- Runtime secrets are Cloudflare Worker secrets: `AUTH_BOOTSTRAP_TOKEN`,
+  `PADDLEOCR_API_TOKEN`, `AUDIT_OBJECT_ACCESS_KEY_ID`, and
+  `AUDIT_OBJECT_SECRET_ACCESS_KEY`.
 
-Historical local components still exist in the repository, but they are no longer production services:
+The previous local Mac runtime has been retired and removed from source control:
 
-- `web/` runs the Next.js audit command center.
-- `src/pdf_expiry_checker/server.py` runs the Python API/OCR service.
-- `swift/pdf_audit.swift` performs PDF outline parsing, page rendering, macOS Vision OCR, and Tesseract fallback.
-- `web/src/lib/audit-db.ts` stores history in local SQLite through `better-sqlite3`.
-- `web/src/lib/upload-store.ts` stages chunked uploads in the local filesystem.
-- `deploy/local/*` installs macOS LaunchAgents for Next.js, Python, and `cloudflared`.
-- Cloudflare Tunnel maps `pdf-audit.bobochang.cn` to `http://127.0.0.1:3000`.
+- no root-level Python OCR service,
+- no Swift PDFKit/Vision OCR helper,
+- no static local workbench,
+- no `deploy/local` LaunchAgent or Cloudflare Tunnel scripts,
+- no local chunk-upload filesystem store.
 
-Those local pieces are useful as legacy reference/test code only. Do not restore LaunchAgents or Tunnel routing for production operation.
+Do not restore LaunchAgents, a local Python/Swift OCR service, or Tunnel routing
+for production operation. Use Cloudflare Worker rollback or cloud OCR/provider
+configuration changes instead.
 
 ## Feasibility Summary
 
-Cloud deployment is feasible, but the current OCR engine cannot be lifted unchanged into ordinary Linux/serverless hosting.
-
-The hard dependency is `swift/pdf_audit.swift`:
-
-```swift
-import PDFKit
-import Vision
-import AppKit
-```
-
-Those frameworks are macOS-only. Cloudflare Workers, Vercel Functions, Linux containers, and most VPS environments cannot run that code as-is. A real cloud migration must either replace the OCR execution path or move it to a managed macOS host.
+Cloud deployment is feasible because the business runtime no longer depends on
+macOS-only OCR frameworks. The retired local OCR engine used PDFKit, Vision, and
+AppKit, which cannot run inside Cloudflare Workers, Vercel Functions, Linux
+containers, or most VPS environments. The active architecture replaces that path
+with PaddleOCR.
 
 ## Recommended Target Architecture
 
@@ -86,10 +82,10 @@ Required boundaries:
 
 Replace local-only state:
 
-- Replace `web/src/lib/upload-store.ts` local chunk files with direct multipart object storage upload.
-- Replace `better-sqlite3` with D1, Turso, Postgres, or another cloud database.
+- Replace local chunk files with direct or Worker-mediated object storage upload.
+- Replace production local persistence with D1.
 - Store source PDFs and generated artifacts under deterministic object keys.
-- Remove the current local upload-store filesystem dependency before deploying to an immutable/serverless runtime. The current build already warns that `web/src/lib/upload-store.ts` causes broad Turbopack/NFT tracing because it performs dynamic filesystem work.
+- Keep SQLite only as a local/test fallback.
 
 Suggested object key shape:
 
@@ -137,7 +133,8 @@ The current Worker config lives in `web/wrangler.jsonc` and expects:
 - R2 binding `AUDIT_BUCKET` with bucket name `pdf-audit-artifacts`.
 - R2 binding `NEXT_INC_CACHE_R2_BUCKET` with bucket name `pdf-audit-opennext-cache`
   for OpenNext incremental cache.
-- Secrets `PADDLEOCR_API_TOKEN` and `PDF_CHECKER_TOKEN`.
+- Secrets `AUTH_BOOTSTRAP_TOKEN`, `PADDLEOCR_API_TOKEN`,
+  `AUDIT_OBJECT_ACCESS_KEY_ID`, and `AUDIT_OBJECT_SECRET_ACCESS_KEY`.
 
 The active Cloudflare production resources are already created and configured in
 `web/wrangler.jsonc`. For a new account or disaster recovery environment,
@@ -149,8 +146,10 @@ npx wrangler r2 bucket create pdf-audit-artifacts
 npx wrangler r2 bucket create pdf-audit-opennext-cache
 npx wrangler d1 create pdf-audit-db
 npx wrangler d1 migrations apply pdf-audit-db --remote
+npx wrangler secret put AUTH_BOOTSTRAP_TOKEN
 npx wrangler secret put PADDLEOCR_API_TOKEN
-npx wrangler secret put PDF_CHECKER_TOKEN
+npx wrangler secret put AUDIT_OBJECT_ACCESS_KEY_ID
+npx wrangler secret put AUDIT_OBJECT_SECRET_ACCESS_KEY
 ```
 
 Then build and deploy through OpenNext:
@@ -177,11 +176,12 @@ Do not treat local `dig` output alone as production routing evidence. Prefer
 HTTPS response headers, Cloudflare dashboard/API evidence, or Cloudflare DoH
 queries when checking whether `pdf-audit.bobochang.cn` is routed to the Worker.
 
-Create a signed upload URL:
+Create a signed upload URL from an authenticated browser session:
 
 ```bash
 curl -sS \
-  -X POST 'https://pdf-audit.bobochang.cn/api/audit/cloud-uploads?token=<pdf-checker-token>' \
+  -X POST 'https://pdf-audit.bobochang.cn/api/audit/cloud-uploads' \
+  -H 'Cookie: pdf_audit_session=<session-token>' \
   -H 'Content-Type: application/json' \
   -d '{"filename":"input.pdf","size":123456,"contentType":"application/pdf"}'
 ```
@@ -210,12 +210,15 @@ Submit the uploaded object to PaddleOCR:
 
 ```bash
 curl -sS \
-  -X POST 'https://pdf-audit.bobochang.cn/api/audit/cloud-uploads/paddleocr?token=<pdf-checker-token>' \
+  -X POST 'https://pdf-audit.bobochang.cn/api/audit/cloud-uploads/paddleocr' \
+  -H 'Cookie: pdf_audit_session=<session-token>' \
   -H 'Content-Type: application/json' \
-  -d '{"objectKey":"jobs/<job-id>/input.pdf"}'
+  -d '{"jobId":"<job-id>","objectKey":"jobs/<job-id>/input.pdf"}'
 ```
 
-This creates a short-lived signed GET URL and submits that URL to PaddleOCR. The response returns `providerJobId`, which can be polled through `GET /api/audit/paddleocr/jobs/{jobId}/status`.
+This creates a short-lived signed GET URL and submits that URL to PaddleOCR. The
+response returns `providerJobId`, and task progress is polled through
+`GET /api/audit/jobs/{id}/status`.
 
 ### Phase 3: PaddleOCR provider adapter
 
@@ -229,7 +232,9 @@ getOcrJobStatus(providerJobId) -> queued | running | complete | failed
 collectOcrOutput(providerJobId) -> normalized page text + metadata
 ```
 
-The existing date extraction logic in `src/pdf_expiry_checker/extractor.py` should remain the comparison baseline until a TypeScript or cloud-native equivalent is verified.
+The TypeScript analyzer in `web/src/lib/audit-analyzer.ts` is now the active
+date extraction and classification implementation. Regression cases migrated
+from the retired Python extractor live under `web/src/lib/__tests__/`.
 
 Provider endpoint:
 
@@ -289,25 +294,16 @@ Markdown images and `outputImages` should be optional in the first cloud MVP. Do
 Implemented repo boundary:
 
 - Provider helper: `web/src/lib/paddleocr.ts`
-- Submit URL-mode job endpoint: `POST /api/audit/paddleocr/jobs`
-- Poll provider status endpoint: `GET /api/audit/paddleocr/jobs/{jobId}/status`
+- Runtime config helper: `web/src/lib/paddleocr-runtime.ts`
+- Cloud upload session endpoint: `POST /api/audit/cloud-uploads`
+- Submit uploaded object to PaddleOCR: `POST /api/audit/cloud-uploads/paddleocr`
+- Poll job status/finalization: `GET /api/audit/jobs/{id}/status`
+- Read results/download artifacts: `GET /api/audit/jobs/{id}/result` and
+  `GET /api/audit/jobs/{id}/download/{file}`
 
-Submit a publicly reachable or signed PDF URL:
-
-```bash
-curl -sS \
-  -X POST 'https://pdf-audit.bobochang.cn/api/audit/paddleocr/jobs?token=<pdf-checker-token>' \
-  -H 'Content-Type: application/json' \
-  -d '{"fileUrl":"https://example.com/input.pdf"}'
-```
-
-Poll the provider job:
-
-```bash
-curl -sS 'https://pdf-audit.bobochang.cn/api/audit/paddleocr/jobs/<jobId>/status?token=<pdf-checker-token>'
-```
-
-These endpoints intentionally do not replace the current local upload flow yet. They establish the provider boundary first; the next migration step is to connect object storage, job history, and result artifact persistence.
+The direct provider routes under `/api/audit/paddleocr/jobs` intentionally
+return `410` so provider job access stays scoped through authenticated audit
+jobs, ownership checks, and quota accounting.
 
 The cloud upload endpoints now connect object storage to PaddleOCR submission, and the PaddleOCR cloud path is recorded in the existing audit history table with `runtime=paddleocr`, `objectKey`, and `providerJobId`. When PaddleOCR reaches `done`, the app downloads `resultUrl.jsonUrl`, normalizes markdown into `ocr.txt`, generates `result.json` and `matches.csv`, and writes all artifacts back next to the source object. Cloud jobs can therefore be tracked, opened as result reports, and downloaded through the existing result/download endpoints.
 
@@ -349,39 +345,31 @@ Relevant constraints from current Cloudflare docs:
 - Request body limit depends on plan: Free/Pro 100 MB, Business 200 MB, Enterprise 500 MB default.
 - Next.js is supported through the OpenNext adapter.
 - R2 supports large object storage and multipart upload.
-- Cloudflare Containers can run Linux container workloads, but cannot run macOS `PDFKit` or `Vision`.
+- Cloudflare Containers can run Linux container workloads, but cannot run macOS
+  PDFKit or Vision.
 
 ## Validation Plan
 
-Use `投标文件.pdf` as the parity file because it previously exposed nested outline behavior.
-
 Minimum checks:
 
-1. Local baseline still passes:
+1. Code quality:
 
    ```bash
-   PYTHONPATH=src python3 -m unittest discover -s tests -v
+   cd web
+   npm run test
+   npm run lint
+   npm run build
+   npm run cf:build
    ```
 
-2. Cloud candidate extracts the same or better certificate-page set from nested outlines.
-3. PaddleOCR candidate produces comparable OCR/markdown text for certificate pages.
-4. Result summary is compared with the known baseline from the local path:
-
-   ```text
-   certificate pages: 225
-   pages OCR: 225
-   validity candidates: 123
-   matches before 2026-05-22: 0
-   near expiry: 17
-   needs review: 4
-   ```
-
-5. Public endpoint validation:
+2. Public endpoint validation:
 
    ```bash
    curl -I 'https://pdf-audit.bobochang.cn/'
-   curl -sS 'https://pdf-audit.bobochang.cn/api/audit/history'
+   curl -fsS 'https://pdf-audit.bobochang.cn/api/auth/me'
    ```
+
+   The unauthenticated `/api/auth/me` request should return `401` JSON.
 
 ## Rollback
 
@@ -393,20 +381,19 @@ Production rollback should remain cloud-native:
 4. Verify:
 
    ```bash
-   curl -I 'https://pdf-audit.bobochang.cn/?token=<pdf-checker-token>'
+   curl -I 'https://pdf-audit.bobochang.cn/'
    ```
 
 ## Open Implementation Decisions
 
 - Validate PaddleOCR limits, pricing, retention policy, and output quality for production PDFs.
 - Decide whether PaddleOCR URL mode can consume R2 signed URLs directly; if not, use trusted server-side multipart submission.
-- Choose job database: Cloudflare D1 vs Turso/Postgres.
-- Choose where result normalization runs: Worker, container, or background job runner.
-- Choose authentication model: keep shared token initially, or move to Cloudflare Access/Zero Trust.
 - Decide retention policy for source PDFs and artifacts.
 
 ## Recommendation
 
 Proceed with the Cloudflare Worker + R2 + D1 + PaddleOCR async provider architecture.
 
-Do not use the current local macOS OCR service for business traffic. It can remain in source control as legacy reference code until it is intentionally removed in a later cleanup task.
+Do not use the retired local macOS OCR service for business traffic. It has been
+removed from source control; historical design documents remain only as archived
+context.

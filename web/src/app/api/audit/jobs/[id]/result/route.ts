@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { jsonError } from "@/lib/api-response"
 import { requireAuth } from "@/lib/auth"
 import { getAuditDb } from "@/lib/audit-db"
-import { resultDistribution } from "@/lib/audit-python"
+import { resultDistribution } from "@/lib/audit-progress"
 import { createCloudObjectStoreConfig, fetchCloudObjectText, siblingObjectKey } from "@/lib/cloud-object-store"
 import type { AuditResult } from "@/lib/audit-types"
 
