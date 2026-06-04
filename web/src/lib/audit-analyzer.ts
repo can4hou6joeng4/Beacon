@@ -21,6 +21,7 @@ const LOCAL_CERTIFICATE_CONTEXT_MARKER =
   /(?:中华人民共和国\s*一级\s*造价\s*工程师\s*注册\s*证书|注册\s*证书\s*信息\s*页|执业\s*注册\s*信息\s*截图|身份证|营业执照|许可证|资质证|资格证|职业资格|执业资格|注册执业|注册信息|注册证|证书信息|一级\s*(?:注册)?\s*造价\s*(?:(?:工程)?师)?\s*(?:注册)?\s*证)/
 const NON_CERTIFICATE_FORM_MARKER = /(?:项目\s*评审\s*结论\s*表|评审\s*结论|审查\s*表|审核\s*表|汇总\s*表|结论\s*表)/
 const FIELD_BOUNDARY = "\n"
+const CANDIDATE_LOOKAHEAD_LINES = 6
 
 type DateMatch = {
   start: number
@@ -36,6 +37,11 @@ type ValidityMarkerMatch = {
 type CandidateContext = {
   context: string
   focusOffset: number
+}
+
+type ValidityClassificationContext = {
+  before: string
+  after: string
 }
 
 export function analyzePaddleOcrJsonl(input: { jobId: string; cutoff: string; jsonl: string }): {
@@ -171,10 +177,8 @@ function analyzeOcrPages(ocrPages: OcrPages, cutoff: string, nearDays = 45): {
 }
 
 function candidateContext(lines: string[], index: number): CandidateContext {
-  const line = lines[index] || ""
-  const lookahead = DOCUMENT_USE_VALIDITY_MARKER.test(line) ? 4 : 6
   const start = Math.max(0, index - 4)
-  const contextLines = lines.slice(start, Math.min(lines.length, index + lookahead))
+  const contextLines = lines.slice(start, Math.min(lines.length, index + CANDIDATE_LOOKAHEAD_LINES))
   const prefix = contextLines.slice(0, index - start).join(FIELD_BOUNDARY)
   const normalizedPrefix = prefix ? normalizeEvidenceForAnalysis(prefix) : ""
   return {
@@ -245,38 +249,48 @@ function findNextValidityMarkerIndex(segment: string, offset: number): number | 
 
 function isCertificateValidityContext(context: string, focusOffset: number): boolean {
   const segment = localValidityClassificationSegment(context, focusOffset)
-  const certificateIndex = lastMatchIndex(segment, LOCAL_CERTIFICATE_CONTEXT_MARKER)
-  if (certificateIndex === null) return false
-  const nonCertificateIndex = lastMatchIndex(segment, NON_CERTIFICATE_FORM_MARKER)
-  return nonCertificateIndex === null || certificateIndex > nonCertificateIndex
+  const beforeCertificateIndex = lastMatchIndex(segment.before, LOCAL_CERTIFICATE_CONTEXT_MARKER)
+  const beforeNonCertificateIndex = lastMatchIndex(segment.before, NON_CERTIFICATE_FORM_MARKER)
+  if (beforeCertificateIndex !== null) {
+    return beforeNonCertificateIndex === null || beforeCertificateIndex > beforeNonCertificateIndex
+  }
+  if (beforeNonCertificateIndex !== null) return false
+
+  const afterCertificateIndex = firstMatchIndex(segment.after, LOCAL_CERTIFICATE_CONTEXT_MARKER)
+  if (afterCertificateIndex === null) return false
+  const afterNonCertificateIndex = firstMatchIndex(segment.after, NON_CERTIFICATE_FORM_MARKER)
+  return afterNonCertificateIndex === null || afterCertificateIndex < afterNonCertificateIndex
 }
 
-function localValidityClassificationSegment(context: string, focusOffset: number): string {
+function localValidityClassificationSegment(context: string, focusOffset: number): ValidityClassificationContext {
   const normalized = normalizeEvidenceForAnalysis(context)
   const marker = findValidityMarker(normalized, focusOffset)
-  if (!marker) return normalized
+  if (!marker) return { before: normalized, after: "" }
   const before = normalized.slice(0, marker.index)
   const beforeLines = before
     .split(/\n+/)
     .map((line) => line.trim())
     .filter(Boolean)
   const beforeContext = beforeLines.slice(-4).join(FIELD_BOUNDARY)
-  const afterContext = trimAtNextDocumentBoundary(normalized.slice(marker.index))
-  return [beforeContext, afterContext].filter(Boolean).join(FIELD_BOUNDARY)
+  const afterContext = trimAtNextNonCertificateDocumentBoundary(normalized.slice(marker.index))
+  return { before: beforeContext, after: afterContext }
 }
 
-function trimAtNextDocumentBoundary(text: string): string {
-  const boundaries = [
-    /\n\s*中华人民共和国/,
-    /\n\s*一级\s*造价\s*工程师\s*注册\s*证书/,
-    /\n\s*#?\s*项目\s*评审\s*结论\s*表/,
-  ]
+function trimAtNextNonCertificateDocumentBoundary(text: string): string {
+  const boundaries = [/\n\s*#?\s*项目\s*评审\s*结论\s*表/]
   let cut = text.length
   for (const boundary of boundaries) {
     const match = boundary.exec(text)
     if (match) cut = Math.min(cut, match.index)
   }
   return text.slice(0, cut)
+}
+
+function firstMatchIndex(text: string, pattern: RegExp): number | null {
+  const flags = pattern.flags.replace("g", "")
+  const localPattern = new RegExp(pattern.source, flags)
+  const match = localPattern.exec(text)
+  return match ? (match.index ?? 0) : null
 }
 
 function lastMatchIndex(text: string, pattern: RegExp): number | null {

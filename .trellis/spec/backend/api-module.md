@@ -157,6 +157,29 @@ Never expose a public R2 object URL or a PaddleOCR token to the browser.
 4. When done, result JSONL is analyzed and stored.
 5. OCR page quota is consumed idempotently from the final provider page count.
 
+### OCR Result Analysis Contract
+
+`web/src/lib/audit-analyzer.ts` owns validity-field classification and expiry
+extraction. Keep these as two related but separate windows:
+
+- Classification may inspect nearby text before and after the focused validity
+  marker. PaddleOCR can place `使用有效期` at the top of a certificate page and
+  the `中华人民共和国 ... 造价工程师注册证书` heading after the date lines.
+- Field extraction should stay focused on the validity field itself. It should
+  stop before certificate headings, registration records, approval dates, issue
+  dates, proof dates, or the next validity marker so unrelated document dates do
+  not override the expiry.
+- Non-certificate form markers such as `项目评审结论表` still block the focused
+  validity field unless a certificate marker appears closer on the same side of
+  the field.
+
+Required tests for analyzer changes:
+
+- leading `使用有效期` before the certificate heading;
+- split range dates where the end date is on the next OCR/Markdown line;
+- image or HTML markup between the date and later certificate heading;
+- review-form validity rows remain ignored on mixed pages.
+
 ## Wrong vs Correct
 
 ### Wrong

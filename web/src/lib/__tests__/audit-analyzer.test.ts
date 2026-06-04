@@ -131,6 +131,66 @@ describe("analyzePaddleOcrJsonl", () => {
     expect(artifacts.result.near_expiry.map((row) => row.expiry_date)).toEqual(["2026-06-23", "2026-06-08"])
   })
 
+  it("recognizes leading use-validity fields before the certificate heading", () => {
+    const jsonl = jsonlFromPages([
+      [
+        "使用有效期：2026年03月24日 - 2026年06月22日",
+        "中华人民共和国",
+        "一级造价工程师注册证书",
+        "姓 名：张三",
+      ].join("\n"),
+      [
+        "使用有效期：2026年03月24日",
+        "- 2026年06月22日",
+        "中华人民共和国",
+        "一级造价工程师注册证书",
+        "姓 名：李四",
+      ].join("\n"),
+      [
+        "使用有效期：2026年03月24日",
+        "- 2026年06月22日",
+        "<div>image markup</div>",
+        "中华人民共和国",
+        "# 一级造价工程师注册证书",
+        "姓 名：王五",
+      ].join("\n"),
+    ])
+
+    const artifacts = analyzePaddleOcrJsonl({ jobId: "job-leading-use-validity", cutoff: "2026-06-23", jsonl })
+
+    expect(artifacts.result.summary.validity_candidates).toBe(3)
+    expect(artifacts.result.matches.map((row) => row.expiry_date)).toEqual([
+      "2026-06-22",
+      "2026-06-22",
+      "2026-06-22",
+    ])
+    expect(artifacts.result.matches.map((row) => row.field_context)).toEqual([
+      "使用有效期：2026年03月24日 - 2026年06月22日",
+      "使用有效期：2026年03月24日 · 2026年06月22日",
+      "使用有效期：2026年03月24日 · 2026年06月22日",
+    ])
+  })
+
+  it("does not let a later certificate heading rescue a review-form use-validity field", () => {
+    const jsonl = jsonlFromPages([
+      [
+        "# 项目评审结论表",
+        "使用有效期：2026年03月02日",
+        "评审结论：通过",
+        "中华人民共和国",
+        "一级造价工程师注册证书",
+        "使用有效期：2026年03月25日",
+        "- 2026年06月22日",
+      ].join("\n"),
+    ])
+
+    const artifacts = analyzePaddleOcrJsonl({ jobId: "job-review-before-certificate", cutoff: "2026-06-23", jsonl })
+
+    expect(artifacts.result.summary.validity_candidates).toBe(1)
+    expect(artifacts.result.matches.map((row) => row.expiry_date)).toEqual(["2026-06-22"])
+    expect(artifacts.result.matches[0]?.field_context).toBe("使用有效期：2026年03月25日 · 2026年06月22日")
+  })
+
   it("ignores non-certificate review forms that mention a use-validity field", () => {
     const jsonl = JSON.stringify({
       result: {
