@@ -15,7 +15,7 @@ https://pdf-audit.bobochang.cn
 - `web/`：Next.js 16 App Router 应用，通过 OpenNext 部署到 Cloudflare Workers。
 - Cloudflare D1：保存用户、会话、额度、任务历史和任务状态。
 - Cloudflare R2：保存上传 PDF、PaddleOCR 原始 JSONL、`ocr.txt`、`matches.csv` 和 `result.json`。
-- PaddleOCR：异步 OCR provider，默认模型为 `PaddleOCR-VL-1.5`。
+- PaddleOCR：异步 OCR provider，默认模型为 `PaddleOCR-VL-1.6`。
 - 旧本机 OCR API 路由保留为兼容信号，会返回 `410` 并提示使用云端上传流程。
 
 ## 本地开发

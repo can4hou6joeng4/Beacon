@@ -14,11 +14,17 @@ import {
 } from "../paddleocr"
 
 describe("createPaddleOcrConfig", () => {
+  it("defaults to PaddleOCR-VL-1.6 when no model override is configured", () => {
+    const config = createPaddleOcrConfig({ PADDLEOCR_API_TOKEN: "runtime-secret" })
+
+    expect(config.model).toBe("PaddleOCR-VL-1.6")
+  })
+
   it("uses safe defaults and reads secrets from environment input", () => {
     const config = createPaddleOcrConfig({
       PADDLEOCR_API_BASE_URL: "https://paddleocr.aistudio-app.com/api/v2/ocr/",
       PADDLEOCR_API_TOKEN: " bearer runtime-secret ",
-      PADDLEOCR_MODEL: "PaddleOCR-VL-1.5",
+      PADDLEOCR_MODEL: "PaddleOCR-VL-1.6",
       PADDLEOCR_POLL_INTERVAL_MS: "7000",
       PADDLEOCR_USE_DOC_ORIENTATION_CLASSIFY: "true",
     })
@@ -26,7 +32,7 @@ describe("createPaddleOcrConfig", () => {
     expect(config).toEqual({
       apiBaseUrl: "https://paddleocr.aistudio-app.com/api/v2/ocr",
       apiToken: "runtime-secret",
-      model: "PaddleOCR-VL-1.5",
+      model: "PaddleOCR-VL-1.6",
       pollIntervalMs: 7000,
       optionalPayload: {
         useDocOrientationClassify: true,
@@ -49,7 +55,7 @@ describe("buildPaddleOcrUrlJobRequest", () => {
       },
       body: {
         fileUrl: "https://files.example.com/input.pdf",
-        model: "PaddleOCR-VL-1.5",
+        model: "PaddleOCR-VL-1.6",
         optionalPayload: {
           useDocOrientationClassify: false,
           useDocUnwarping: false,
@@ -78,7 +84,7 @@ describe("buildPaddleOcrFileJobRequest", () => {
 
     expect(request.url).toBe("https://paddleocr.aistudio-app.com/api/v2/ocr/jobs")
     expect(request.headers).toEqual({ Authorization: "bearer runtime-secret" })
-    expect(request.body.get("model")).toBe("PaddleOCR-VL-1.5")
+    expect(request.body.get("model")).toBe("PaddleOCR-VL-1.6")
     expect(request.body.get("optionalPayload")).toBe(
       JSON.stringify({
         useDocOrientationClassify: false,
@@ -179,6 +185,22 @@ describe("PaddleOCR HTTP client", () => {
 describe("PaddleOCR response parsing", () => {
   it("extracts job ids from submit responses", () => {
     expect(parsePaddleOcrJobId({ data: { jobId: "job-123" } })).toBe("job-123")
+  })
+
+  it("maps pending status to a queued audit status", () => {
+    expect(
+      parsePaddleOcrJobSnapshot({
+        data: {
+          jobId: "job-123",
+          state: "pending",
+        },
+      }),
+    ).toMatchObject({
+      providerJobId: "job-123",
+      providerState: "pending",
+      status: "queued",
+      message: "PaddleOCR 任务已创建，等待处理",
+    })
   })
 
   it("maps running status with progress", () => {

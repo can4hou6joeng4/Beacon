@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/environment.md", "reason": "Cloudflare runtime variables, PaddleOCR model config, deployment command, and secret boundary"}
+{"file": ".trellis/spec/backend/security.md", "reason": "Provider token handling and auth/quota safety while changing OCR provider config"}
+{"file": ".trellis/spec/backend/storage.md", "reason": "R2 upload to PaddleOCR URL/file submission contract must remain unchanged"}
+{"file": ".trellis/spec/shared/typescript.md", "reason": "TypeScript provider parser and config helper rules"}

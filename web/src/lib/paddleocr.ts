@@ -49,7 +49,7 @@ export type PaddleOcrMarkdownPage = {
 type Fetcher = typeof fetch
 
 const DEFAULT_API_BASE_URL = "https://paddleocr.aistudio-app.com/api/v2/ocr"
-const DEFAULT_MODEL = "PaddleOCR-VL-1.5"
+const DEFAULT_MODEL = "PaddleOCR-VL-1.6"
 const DEFAULT_POLL_INTERVAL_MS = 5000
 
 type Env = Record<string, string | undefined>

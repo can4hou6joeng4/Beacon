@@ -55,7 +55,7 @@ Never put provider tokens, bootstrap tokens, R2 secret keys, or signed URLs in
 | `AUDIT_OBJECT_STORE_DRIVER` | `r2-binding` |
 | `AUDIT_OBJECT_PREFIX` | `jobs` |
 | `PADDLEOCR_API_BASE_URL` | `https://paddleocr.aistudio-app.com/api/v2/ocr` |
-| `PADDLEOCR_MODEL` | `PaddleOCR-VL-1.5` |
+| `PADDLEOCR_MODEL` | `PaddleOCR-VL-1.6` |
 | `PADDLEOCR_POLL_INTERVAL_MS` | `5000` |
 
 ## Binding Access

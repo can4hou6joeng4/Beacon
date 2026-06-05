@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/quality.md", "reason": "Required backend checks and Cloudflare build/deploy-sensitive verification"}
+{"file": ".trellis/spec/backend/environment.md", "reason": "Verify production env/model docs and deploy command behavior"}
+{"file": ".trellis/spec/backend/security.md", "reason": "Verify no PaddleOCR token or signed URL is committed or exposed"}
+{"file": ".trellis/spec/backend/storage.md", "reason": "Verify upload/submission artifact contract remains intact"}

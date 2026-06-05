@@ -11,7 +11,7 @@ The production runtime is intentionally cloud-only:
 - Uploaded PDFs and generated artifacts are stored in the R2 bucket `pdf-audit-artifacts`.
 - OpenNext incremental cache assets are stored in the R2 bucket `pdf-audit-opennext-cache`.
 - Job history/status is stored in the D1 database `pdf-audit-db`.
-- OCR is submitted to PaddleOCR asynchronously with model `PaddleOCR-VL-1.5`.
+- OCR is submitted to PaddleOCR asynchronously with model `PaddleOCR-VL-1.6`.
 - Runtime secrets are Cloudflare Worker secrets: `AUTH_BOOTSTRAP_TOKEN`,
   `PADDLEOCR_API_TOKEN`, `AUDIT_OBJECT_ACCESS_KEY_ID`, and
   `AUDIT_OBJECT_SECRET_ACCESS_KEY`.
@@ -52,7 +52,7 @@ Cloudflare Worker / OpenNext app
   |
   +----------------------> Async OCR adapter
                              |
-                             +--> PaddleOCR API (PaddleOCR-VL-1.5)
+                             +--> PaddleOCR API (PaddleOCR-VL-1.6)
                              +--> fallback: AWS Textract or Google Cloud Vision
                              +--> fallback: Linux OCR container
                              +--> fallback: remote macOS OCR host
@@ -222,7 +222,7 @@ response returns `providerJobId`, and task progress is polled through
 
 ### Phase 3: PaddleOCR provider adapter
 
-Implement a PaddleOCR async provider adapter. The current preferred model is `PaddleOCR-VL-1.5`.
+Implement a PaddleOCR async provider adapter. The current preferred model is `PaddleOCR-VL-1.6`.
 
 The adapter should expose a repo-local contract, independent of the provider:
 
@@ -249,7 +249,7 @@ Required secrets/config:
 AUDIT_OCR_PROVIDER=paddleocr
 PADDLEOCR_API_BASE_URL=https://paddleocr.aistudio-app.com/api/v2/ocr
 PADDLEOCR_API_TOKEN=<secret>
-PADDLEOCR_MODEL=PaddleOCR-VL-1.5
+PADDLEOCR_MODEL=PaddleOCR-VL-1.6
 PADDLEOCR_POLL_INTERVAL_MS=5000
 ```
 
@@ -264,7 +264,7 @@ Recommended submission flow:
    ```json
    {
      "fileUrl": "<signed-url>",
-     "model": "PaddleOCR-VL-1.5",
+     "model": "PaddleOCR-VL-1.6",
      "optionalPayload": {
        "useDocOrientationClassify": false,
        "useDocUnwarping": false,

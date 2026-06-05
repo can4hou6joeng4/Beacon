@@ -56,7 +56,7 @@ Production variables:
 | `AUDIT_OBJECT_REGION` | `auto` |
 | `AUDIT_OBJECT_PREFIX` | `jobs` |
 | `PADDLEOCR_API_BASE_URL` | `https://paddleocr.aistudio-app.com/api/v2/ocr` |
-| `PADDLEOCR_MODEL` | `PaddleOCR-VL-1.5` |
+| `PADDLEOCR_MODEL` | `PaddleOCR-VL-1.6` |
 | `PADDLEOCR_POLL_INTERVAL_MS` | `5000` |
 
 Required Worker secrets:
