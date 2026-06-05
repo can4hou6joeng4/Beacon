@@ -98,7 +98,7 @@ type WorkbenchTab = "progress" | "overview" | "results" | "history"
 
 function emptyDistribution(): DistributionRow[] {
   return [
-    { name: "早于截止", value: 0, kind: "danger" },
+    { name: "截止日内到期", value: 0, kind: "danger" },
     { name: "临近到期", value: 0, kind: "warning" },
     { name: "需要复核", value: 0, kind: "review" },
     { name: "有效", value: 0, kind: "ok" },
@@ -329,7 +329,7 @@ export function AuditCommandCenter({
   const activeHistoryCount = history.filter((job) => job.status === "queued" || job.status === "running").length
   const headline = useMemo(() => {
     if (!result) return currentJob ? currentJob.message : "上传 PDF 后开始检查"
-    return result.summary.matches === 0 ? "当前任务无早于截止日期证件" : `发现 ${result.summary.matches} 项早于截止日期`
+    return result.summary.matches === 0 ? "当前任务无截止日内到期证件" : `发现 ${result.summary.matches} 项截止日内到期`
   }, [currentJob, result])
 
   async function refreshCurrentUser() {
@@ -647,7 +647,7 @@ export function AuditCommandCenter({
               <p className="mt-2 text-sm text-muted-foreground">
                 {result
                   ? `截止日期 ${result.summary.cutoff}，共识别 ${result.summary.validity_candidates} 个有效期字段。`
-                  : "结果会按早于截止日期、临近到期、需要复核和全部候选分层展示。"}
+                  : "结果会按截止日内到期、临近到期、需要复核和全部候选分层展示。"}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">

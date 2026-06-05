@@ -53,7 +53,7 @@ describe("resultDistribution", () => {
         cutoff: "2026-05-07",
       }),
     ).toEqual([
-      { name: "早于截止", value: 0, kind: "danger" },
+      { name: "截止日内到期", value: 0, kind: "danger" },
       { name: "临近到期", value: 0, kind: "warning" },
       { name: "需要复核", value: 3, kind: "review" },
       { name: "有效", value: 81, kind: "ok" },

@@ -20,7 +20,7 @@ export function resultDistribution(summary: AuditSummary) {
   const flagged = summary.matches + summary.near_expiry + summary.needs_review
   const ok = Math.max(summary.validity_candidates - flagged, 0)
   return [
-    { name: "早于截止", value: summary.matches, kind: "danger" as const },
+    { name: "截止日内到期", value: summary.matches, kind: "danger" as const },
     { name: "临近到期", value: summary.near_expiry, kind: "warning" as const },
     { name: "需要复核", value: summary.needs_review, kind: "review" as const },
     { name: "有效", value: ok, kind: "ok" as const },

@@ -45,6 +45,25 @@ describe("analyzePaddleOcrJsonl", () => {
     expect(artifacts.csv).toBe("page,title,expiry_date,context\n")
   })
 
+  it("treats expiry dates on the cutoff date as matched", () => {
+    const jsonl = jsonlFromPages([
+      "一级注册造价工程师注册证\n使用有效期：2026年03月24日 - 2026年06月22日",
+      "一级注册造价工程师注册证\n使用有效期：2026年03月25日 - 2026年06月23日",
+    ])
+
+    const artifacts = analyzePaddleOcrJsonl({ jobId: "job-cutoff-inclusive", cutoff: "2026-06-22", jsonl })
+
+    expect(artifacts.result.summary).toMatchObject({
+      validity_candidates: 2,
+      matches: 1,
+      near_expiry: 1,
+      needs_review: 0,
+      cutoff: "2026-06-22",
+    })
+    expect(artifacts.result.matches.map((row) => row.expiry_date)).toEqual(["2026-06-22"])
+    expect(artifacts.result.near_expiry.map((row) => row.expiry_date)).toEqual(["2026-06-23"])
+  })
+
   it("prefers the validity field date over unrelated trailing table dates", () => {
     const jsonl = JSON.stringify({
       result: {

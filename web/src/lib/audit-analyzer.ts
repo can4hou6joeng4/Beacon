@@ -155,7 +155,7 @@ function analyzeOcrPages(ocrPages: OcrPages, cutoff: string, nearDays = 45): {
   for (const row of candidates) {
     if (!row.expiry_date || row.expiry_date === "长期") continue
     const expiryDate = parseDate(row.expiry_date)
-    if (expiryDate.getTime() < cutoffDate.getTime()) {
+    if (expiryDate.getTime() <= cutoffDate.getTime()) {
       matches.push(row)
     } else if (expiryDate.getTime() <= nearUntil.getTime()) {
       nearExpiry.push(row)

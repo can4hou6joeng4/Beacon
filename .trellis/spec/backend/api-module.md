@@ -169,6 +169,9 @@ extraction. Keep these as two related but separate windows:
   stop before certificate headings, registration records, approval dates, issue
   dates, proof dates, or the next validity marker so unrelated document dates do
   not override the expiry.
+- Match classification uses an inclusive cutoff: an expiry date equal to the
+  selected cutoff date is already expired for audit purposes and belongs in
+  `matches`, not `near_expiry`.
 - Non-certificate form markers such as `项目评审结论表` still block the focused
   validity field unless a certificate marker appears closer on the same side of
   the field.
@@ -176,6 +179,7 @@ extraction. Keep these as two related but separate windows:
 Required tests for analyzer changes:
 
 - leading `使用有效期` before the certificate heading;
+- expiry date equality with the cutoff date;
 - split range dates where the end date is on the next OCR/Markdown line;
 - image or HTML markup between the date and later certificate heading;
 - review-form validity rows remain ignored on mixed pages.

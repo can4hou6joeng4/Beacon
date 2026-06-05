@@ -51,7 +51,7 @@ function evidenceText(row: AuditRow): string {
 
 function detailTone(row: AuditRow, result: AuditResult) {
   const key = rowKey(row)
-  if (result.matches.some((item) => rowKey(item) === key)) return { label: "早于截止", variant: "destructive" as const, icon: AlertTriangle, className: "text-destructive" }
+  if (result.matches.some((item) => rowKey(item) === key)) return { label: "截止日内到期", variant: "destructive" as const, icon: AlertTriangle, className: "text-destructive" }
   if (result.near_expiry.some((item) => rowKey(item) === key)) return { label: "临近到期", variant: "secondary" as const, icon: Clock3, className: "text-amber-700" }
   if (result.needs_review.some((item) => rowKey(item) === key)) return { label: "需要复核", variant: "outline" as const, icon: ListChecks, className: "text-[#176b87]" }
   return { label: "已识别有效", variant: "secondary" as const, icon: CheckCircle2, className: "text-emerald-700" }
@@ -145,7 +145,7 @@ export function ResultTable({ result }: { result: AuditResult | null }) {
     rows: AuditRow[]
     tone: string
   }> = [
-    { value: "matches", label: "早于截止日期", count: result.matches.length, icon: AlertTriangle, rows: result.matches, tone: "text-destructive" },
+    { value: "matches", label: "截止日内到期", count: result.matches.length, icon: AlertTriangle, rows: result.matches, tone: "text-destructive" },
     { value: "near", label: "临近到期", count: result.near_expiry.length, icon: Clock3, rows: result.near_expiry, tone: "text-amber-700" },
     { value: "valid", label: "已识别有效", count: valid.length, icon: CheckCircle2, rows: valid, tone: "text-emerald-700" },
     { value: "review", label: "需要复核", count: result.needs_review.length, icon: ListChecks, rows: result.needs_review, tone: "text-[#176b87]" },
@@ -160,7 +160,7 @@ export function ResultTable({ result }: { result: AuditResult | null }) {
         <div className="flex flex-col gap-3 rounded-lg border bg-card p-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="text-sm font-semibold">结果分类</div>
-            <div className="mt-1 text-xs text-muted-foreground">已识别有效包含晚于截止日期的证件；全部记录同时包含复核项。</div>
+            <div className="mt-1 text-xs text-muted-foreground">已识别有效为未命中且不临近到期的证件；全部记录同时包含复核项。</div>
           </div>
           <Badge variant="outline" className="h-6 self-start lg:self-auto">
             默认查看 {defaultActive.label} · {defaultActive.count}
