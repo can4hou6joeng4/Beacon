@@ -71,3 +71,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Archive completed Trellis tasks
+
+**Date**: 2026-06-17
+**Task**: Archive completed Trellis tasks
+**Branch**: `main`
+
+### Summary
+
+Completed the remaining upload-session error test gap, verified test/lint/build/cf:build, and archived completed Trellis tasks for history reanalysis, upload failure UX, daily quota reset, leading use-validity detection, and remaining certificate review fixes.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6d1deb6` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
