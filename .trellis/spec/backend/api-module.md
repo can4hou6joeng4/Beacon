@@ -98,6 +98,7 @@ Put reusable business logic in `web/src/lib/`, not in route files.
 | audit job persistence | `audit-db.ts`, `audit-db-d1.ts`, `audit-db-sqlite.ts` |
 | quota reservations/refunds/consumption | `quota.ts` |
 | external quota constants | `quota-limits.ts` |
+| cloud upload state errors | `cloud-upload-errors.ts` |
 | R2/S3 object storage | `cloud-object-store.ts` |
 | PaddleOCR client and response parsing | `paddleocr.ts`, `paddleocr-runtime.ts` |
 | OCR result analysis | `audit-analyzer.ts`, `evidence-text.ts` |
@@ -129,6 +130,10 @@ Important codes already used in the app:
 | `ADMIN_REQUIRED` | non-admin called admin endpoint |
 | `QUOTA_EXHAUSTED` | account has no remaining quota |
 | `UPLOAD_QUOTA_LIMIT_EXCEEDED` | configured upload limit exceeds R2 baseline |
+| `UPLOAD_SESSION_FAILED` | same-origin Worker upload was retried after the job had already failed; tell the user to create a fresh check |
+| `UPLOAD_SESSION_COMPLETED` | same-origin Worker upload was retried after the audit job had already completed |
+| `UPLOAD_ALREADY_SUBMITTED` | same-origin Worker upload was retried after the PDF had already been submitted to PaddleOCR |
+| `UPLOAD_SESSION_STALE` | same-origin Worker upload session is no longer usable for a generic state reason |
 | `OCR_PAGE_LIMIT_EXCEEDED` | configured OCR pages exceed PaddleOCR limit |
 | `PADDLEOCR_UNAUTHORIZED` | provider rejected `PADDLEOCR_API_TOKEN` |
 
