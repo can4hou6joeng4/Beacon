@@ -165,6 +165,13 @@ extraction. Keep these as two related but separate windows:
 - Classification may inspect nearby text before and after the focused validity
   marker. PaddleOCR can place `使用有效期` at the top of a certificate page and
   the `中华人民共和国 ... 造价工程师注册证书` heading after the date lines.
+- Registered cost engineer certificate pages (`一级/二级注册造价师证`) are document
+  pages whose business expiry is the document `使用有效期`, not the longer
+  registration `有效期` printed in the certificate body. If OCR misses the
+  document use-validity field on these pages, emit a `needs_review` row instead
+  of silently accepting the body registration date.
+- Treat common OCR variants of the document use-validity label as the same
+  field, including missing `有` forms such as `史用效期` or `更用效期`.
 - Field extraction should stay focused on the validity field itself. It should
   stop before certificate headings, registration records, approval dates, issue
   dates, proof dates, or the next validity marker so unrelated document dates do
@@ -181,6 +188,9 @@ Required tests for analyzer changes:
 - leading `使用有效期` before the certificate heading;
 - expiry date equality with the cutoff date;
 - split range dates where the end date is on the next OCR/Markdown line;
+- OCR-misread `使用有效期` labels with the second date on the following line and
+  no dash between range dates;
+- missing use-validity review rows for registered cost engineer certificates;
 - image or HTML markup between the date and later certificate heading;
 - review-form validity rows remain ignored on mixed pages.
 

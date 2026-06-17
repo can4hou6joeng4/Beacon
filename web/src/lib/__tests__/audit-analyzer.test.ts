@@ -336,4 +336,35 @@ describe("analyzePaddleOcrJsonl", () => {
     expect(artifacts.result.matches.map((row) => row.expiry_date)).toEqual(["2026-05-28"])
     expect(artifacts.result.needs_review[0]?.reason).toBe("一级注册造价师证应以使用有效期为准，但 OCR 未识别到该字段")
   })
+
+  it("uses the later date for OCR-misread use-validity labels without a range dash", () => {
+    const jsonl = jsonlFromPages([
+      [
+        "史用效期：2026年05月25日",
+        "2026年08月23日",
+        "一级造价工程师注册证书",
+        "姓名：梁美辰",
+      ].join("\n"),
+    ])
+
+    const artifacts = analyzePaddleOcrJsonl({ jobId: "job-misread-use-validity", cutoff: "2026-06-24", jsonl })
+
+    expect(artifacts.result.candidates[0]?.expiry_date).toBe("2026-08-23")
+    expect(artifacts.result.matches).toHaveLength(0)
+  })
+
+  it("reviews secondary cost certificates when OCR misses the document use-validity field", () => {
+    const jsonl = jsonlFromPages([
+      [
+        "二级注册造价师证（土建）",
+        "二级造价工程师注册证书",
+        "姓名：郑威",
+        "有效期：2025年08月10日-2029年08月10日",
+      ].join("\n"),
+    ])
+
+    const artifacts = analyzePaddleOcrJsonl({ jobId: "job-secondary-missing-use-validity", cutoff: "2026-06-24", jsonl })
+
+    expect(artifacts.result.needs_review[0]?.reason).toBe("注册造价师证应以使用有效期为准，但 OCR 未识别到该字段")
+  })
 })

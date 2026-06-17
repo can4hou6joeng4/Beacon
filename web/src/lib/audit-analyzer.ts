@@ -13,8 +13,9 @@ const DATE_COMPACT_TAIL = /(20\d{2})\s*[.。:\-]\s*(\d{2})(\d{2})(?!\d)/g
 const DATE_COMPACT = /(20\d{2})(\d{2})(\d{2})(?!\d)/g
 const VALIDITY_MARKER =
   /有\s*(?:效|[A-Za-z]{1,3}|贿|B)\s*(?:期|限|FA)|有\s*效\s*贿\s*限|有\s*效\s*期\s*限|注册\s*有\s*效\s*期|有\s*效\s*期\s*至|效\s*期|效\s*期\s*限|有效期報|有效期燉/
-const DOCUMENT_USE_VALIDITY_MARKER = /(?:使用|用|吏用|史用|更用)\s*有\s*效\s*期/
+const DOCUMENT_USE_VALIDITY_MARKER = /(?:使用|用|吏用|史用|更用)\s*(?:有\s*)?效\s*期/
 const PRIMARY_COST_CERTIFICATE_MARKER = /一级\s*(?:注册)?\s*造价\s*(?:(?:工程)?师)?\s*(?:注册)?\s*证/
+const REGISTERED_COST_CERTIFICATE_MARKER = /[一二]\s*级\s*(?:注册)?\s*造价\s*(?:(?:工程)?师)?\s*(?:注册)?\s*证/
 const CERTIFICATE_PAGE_MARKER =
   /(?:证书|注册证|注册信息|资格证|职业资格|执业资格|注册执业|身份证|营业执照|许可证|资质证|一级\s*(?:注册)?\s*造价\s*(?:(?:工程)?师)?\s*(?:注册)?\s*证)/
 const LOCAL_CERTIFICATE_CONTEXT_MARKER =
@@ -111,8 +112,7 @@ function analyzeOcrPages(ocrPages: OcrPages, cutoff: string, nearDays = 45): {
     const title = lines.find((line) => line.trim())?.trim() || ""
     const pageText = lines.join(" ")
     if (!isCertificatePage(pageText)) continue
-    const shouldReviewMissingUseValidity =
-      PRIMARY_COST_CERTIFICATE_MARKER.test(pageText) && !DOCUMENT_USE_VALIDITY_MARKER.test(pageText)
+    const missingUseValidityReason = missingUseValidityReviewReason(pageText)
 
     lines.forEach((line, index) => {
       if (!VALIDITY_MARKER.test(line)) return
@@ -137,15 +137,15 @@ function analyzeOcrPages(ocrPages: OcrPages, cutoff: string, nearDays = 45): {
       }
     })
 
-    if (shouldReviewMissingUseValidity) {
+    if (missingUseValidityReason) {
       needsReview.push({
         page,
         title,
         context: pageText,
-        field_context: "一级注册造价师证页未识别到使用有效期",
+        field_context: "注册造价师证页未识别到使用有效期",
         expiry_date: null,
         items: [],
-        reason: "一级注册造价师证应以使用有效期为准，但 OCR 未识别到该字段",
+        reason: missingUseValidityReason,
       })
     }
   }
@@ -352,6 +352,16 @@ function isContinuationDateLine(value: string): boolean {
 
 function isCertificatePage(pageText: string): boolean {
   return CERTIFICATE_PAGE_MARKER.test(pageText)
+}
+
+function missingUseValidityReviewReason(pageText: string): string | null {
+  if (!REGISTERED_COST_CERTIFICATE_MARKER.test(pageText) || DOCUMENT_USE_VALIDITY_MARKER.test(pageText)) {
+    return null
+  }
+  if (PRIMARY_COST_CERTIFICATE_MARKER.test(pageText)) {
+    return "一级注册造价师证应以使用有效期为准，但 OCR 未识别到该字段"
+  }
+  return "注册造价师证应以使用有效期为准，但 OCR 未识别到该字段"
 }
 
 function findDateMatches(text: string): DateMatch[] {
