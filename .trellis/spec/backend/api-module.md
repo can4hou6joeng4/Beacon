@@ -174,6 +174,10 @@ extraction. Keep these as two related but separate windows:
   registration `有效期` printed in the certificate body. If OCR misses the
   document use-validity field on these pages, emit a `needs_review` row instead
   of silently accepting the body registration date.
+- Personnel resume tables are not registered cost engineer certificate document
+  pages merely because a cell such as `注册执业证书名称` contains `一级注册造价师证`.
+  Only emit missing-use-validity review rows when the surrounding text also
+  looks like an actual certificate document page.
 - Treat common OCR variants of the document use-validity label as the same
   field, including missing `有` forms such as `史用效期` or `更用效期`.
 - Field extraction should stay focused on the validity field itself. It should

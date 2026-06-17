@@ -21,6 +21,10 @@ const CERTIFICATE_PAGE_MARKER =
 const LOCAL_CERTIFICATE_CONTEXT_MARKER =
   /(?:中华人民共和国\s*一级\s*造价\s*工程师\s*注册\s*证书|注册\s*证书\s*信息\s*页|执业\s*注册\s*信息\s*截图|身份证|营业执照|许可证|资质证|资格证|职业资格|执业资格|注册执业|注册信息|注册证|证书信息|一级\s*(?:注册)?\s*造价\s*(?:(?:工程)?师)?\s*(?:注册)?\s*证)/
 const NON_CERTIFICATE_FORM_MARKER = /(?:项目\s*评审\s*结论\s*表|评审\s*结论|审查\s*表|审核\s*表|汇总\s*表|结论\s*表)/
+const PERSONNEL_RESUME_TABLE_MARKER =
+  /(?:主要\s*人员\s*简历\s*表|项目\s*负责人\s*简历\s*表|拟\s*委派\s*造价\s*人员\s*工作\s*简历\s*表|拟\s*在\s*本\s*合同\s*任职|主要\s*工作\s*经历|参加\s*过\s*的\s*类似\s*项目|注册\s*执业\s*证书\s*名称)/
+const COST_CERTIFICATE_DOCUMENT_MARKER =
+  /(?:^[#\s]*[一二]\s*级\s*(?:注册)?\s*造价\s*(?:(?:工程)?师)?\s*(?:注册)?\s*证(?:[（(][^）)]*[）)])?|[一二]\s*级\s*造价\s*工程师\s*注册\s*证书|初始\s*注册\s*日期|颁发\s*机关\s*盖章|延续\s*注册\s*登记\s*栏|变更\s*注册\s*登记\s*栏|身份证\s*号码)/
 const FIELD_BOUNDARY = "\n"
 const CANDIDATE_LOOKAHEAD_LINES = 6
 
@@ -358,10 +362,17 @@ function missingUseValidityReviewReason(pageText: string): string | null {
   if (!REGISTERED_COST_CERTIFICATE_MARKER.test(pageText) || DOCUMENT_USE_VALIDITY_MARKER.test(pageText)) {
     return null
   }
+  if (isPersonnelResumeTableOnly(pageText)) {
+    return null
+  }
   if (PRIMARY_COST_CERTIFICATE_MARKER.test(pageText)) {
     return "一级注册造价师证应以使用有效期为准，但 OCR 未识别到该字段"
   }
   return "注册造价师证应以使用有效期为准，但 OCR 未识别到该字段"
+}
+
+function isPersonnelResumeTableOnly(pageText: string): boolean {
+  return PERSONNEL_RESUME_TABLE_MARKER.test(pageText) && !COST_CERTIFICATE_DOCUMENT_MARKER.test(pageText)
 }
 
 function findDateMatches(text: string): DateMatch[] {

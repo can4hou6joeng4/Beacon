@@ -337,6 +337,39 @@ describe("analyzePaddleOcrJsonl", () => {
     expect(artifacts.result.needs_review[0]?.reason).toBe("一级注册造价师证应以使用有效期为准，但 OCR 未识别到该字段")
   })
 
+  it("does not review resume tables just because they name a registered cost engineer certificate", () => {
+    const jsonl = jsonlFromPages([
+      [
+        "### 表2. 主要人员简历表",
+        "## (1) 叶炳能",
+        "<table><tr><td>注册执业证书名称</td><td>一级注册造价师证</td><td>证书编号</td><td>建[造]11214400007044</td></tr></table>",
+        "注：本表后附拟委任项目负责人的身份证、注册证书复印件及社保证明材料。",
+      ].join("\n"),
+    ])
+
+    const artifacts = analyzePaddleOcrJsonl({ jobId: "job-resume-table-cost-cert", cutoff: "2026-06-24", jsonl })
+
+    expect(artifacts.result.needs_review).toEqual([])
+    expect(artifacts.result.summary.validity_candidates).toBe(0)
+  })
+
+  it("keeps reviewing old-style registered cost engineer certificate pages without document use-validity", () => {
+    const jsonl = jsonlFromPages([
+      [
+        "# 一级注册造价师证（土建）",
+        "姓 名：廖永坚",
+        "证书编号：建[造]11154400027739",
+        "初始注册日期：2016年01月14日",
+        "发证日期：2023年12月6日",
+      ].join("\n"),
+    ])
+
+    const artifacts = analyzePaddleOcrJsonl({ jobId: "job-old-cost-cert-review", cutoff: "2026-06-24", jsonl })
+
+    expect(artifacts.result.needs_review).toHaveLength(1)
+    expect(artifacts.result.needs_review[0]?.reason).toBe("一级注册造价师证应以使用有效期为准，但 OCR 未识别到该字段")
+  })
+
   it("audits document use-validity fields that PaddleOCR recognizes only in ignored header blocks", () => {
     const jsonl = JSON.stringify({
       result: {
