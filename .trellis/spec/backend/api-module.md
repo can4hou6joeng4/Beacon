@@ -165,6 +165,10 @@ extraction. Keep these as two related but separate windows:
 - Classification may inspect nearby text before and after the focused validity
   marker. PaddleOCR can place `使用有效期` at the top of a certificate page and
   the `中华人民共和国 ... 造价工程师注册证书` heading after the date lines.
+- PaddleOCR markdown can omit audit-relevant top-page blocks when they are
+  labeled as `header`. The JSONL normalization step must merge ignored
+  certificate title and validity blocks from `prunedResult.parsing_res_list`
+  before audit analysis.
 - Registered cost engineer certificate pages (`一级/二级注册造价师证`) are document
   pages whose business expiry is the document `使用有效期`, not the longer
   registration `有效期` printed in the certificate body. If OCR misses the

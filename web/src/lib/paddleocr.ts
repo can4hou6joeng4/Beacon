@@ -51,6 +51,17 @@ type Fetcher = typeof fetch
 const DEFAULT_API_BASE_URL = "https://paddleocr.aistudio-app.com/api/v2/ocr"
 const DEFAULT_MODEL = "PaddleOCR-VL-1.6"
 const DEFAULT_POLL_INTERVAL_MS = 5000
+const DEFAULT_MARKDOWN_IGNORED_LABELS = [
+  "number",
+  "footnote",
+  "header",
+  "header_image",
+  "footer",
+  "footer_image",
+  "aside_text",
+]
+const AUDIT_RELEVANT_IGNORED_BLOCK =
+  /(?:使用|用|吏用|史用|更用)\s*(?:有\s*)?效\s*期|有\s*(?:效|[A-Za-z]{1,3}|贿|B)\s*(?:期|限|FA)|[一二]\s*级\s*(?:注册)?\s*造价\s*(?:(?:工程)?师)?\s*(?:注册)?\s*证|(?:身份证|营业执照|许可证|资质证|资格证|职业资格|执业资格|注册证书)/
 
 type Env = Record<string, string | undefined>
 
@@ -235,11 +246,74 @@ export function parsePaddleOcrJsonlMarkdown(jsonl: string): PaddleOcrMarkdownPag
     for (const item of layoutParsingResults) {
       if (!isRecord(item)) continue
       const markdown = isRecord(item.markdown) ? item.markdown : {}
-      if (typeof markdown.text !== "string") continue
-      pages.push({ pageIndex: pages.length, markdown: markdown.text })
+      const rawMarkdownText = markdown.text
+      const hasMarkdownText = typeof rawMarkdownText === "string"
+      const markdownText = hasMarkdownText ? rawMarkdownText : ""
+      const ignoredBlocks = extractAuditRelevantIgnoredBlocks(item, markdownText)
+      const mergedMarkdown = [...ignoredBlocks, markdownText].filter(Boolean).join("\n\n")
+      if (!hasMarkdownText && !mergedMarkdown) continue
+      pages.push({ pageIndex: pages.length, markdown: mergedMarkdown })
     }
   }
   return pages
+}
+
+function extractAuditRelevantIgnoredBlocks(item: Record<string, unknown>, markdownText: string): string[] {
+  const prunedResult = isRecord(item.prunedResult) ? item.prunedResult : {}
+  const parsingBlocks = Array.isArray(prunedResult.parsing_res_list) ? prunedResult.parsing_res_list : []
+  const ignoredLabels = readMarkdownIgnoredLabels(prunedResult)
+  const selected = parsingBlocks
+    .filter(isRecord)
+    .map(readPaddleOcrParsingBlock)
+    .filter((block): block is PaddleOcrParsingBlock => block !== null)
+    .filter((block) => ignoredLabels.has(block.label))
+    .filter((block) => AUDIT_RELEVANT_IGNORED_BLOCK.test(block.content))
+    .filter((block) => !containsEquivalentText(markdownText, block.content))
+    .sort((left, right) => left.top - right.top || left.left - right.left)
+    .map((block) => block.content)
+  return Array.from(new Set(selected))
+}
+
+type PaddleOcrParsingBlock = {
+  label: string
+  content: string
+  top: number
+  left: number
+}
+
+function readPaddleOcrParsingBlock(block: Record<string, unknown>): PaddleOcrParsingBlock | null {
+  const label = block.block_label
+  const content = block.block_content
+  if (typeof label !== "string" || typeof content !== "string") return null
+  const normalizedContent = content.replace(/\r\n?/g, "\n").trim()
+  if (!normalizedContent) return null
+  const bbox = Array.isArray(block.block_bbox) ? block.block_bbox : []
+  return {
+    label,
+    content: normalizedContent,
+    left: readFiniteNumber(bbox[0]),
+    top: readFiniteNumber(bbox[1]),
+  }
+}
+
+function readMarkdownIgnoredLabels(prunedResult: Record<string, unknown>): Set<string> {
+  const settings = isRecord(prunedResult.model_settings) ? prunedResult.model_settings : {}
+  const configured = Array.isArray(settings.markdown_ignore_labels) ? settings.markdown_ignore_labels : []
+  return new Set([...DEFAULT_MARKDOWN_IGNORED_LABELS, ...configured.filter((label): label is string => typeof label === "string")])
+}
+
+function containsEquivalentText(haystack: string, needle: string): boolean {
+  const normalizedNeedle = normalizeComparableText(needle)
+  if (!normalizedNeedle) return true
+  return normalizeComparableText(haystack).includes(normalizedNeedle)
+}
+
+function normalizeComparableText(text: string): string {
+  return text.replace(/\s/g, "")
+}
+
+function readFiniteNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0
 }
 
 export function paddleOcrMarkdownPagesToOcrText(pages: PaddleOcrMarkdownPage[]): string {

@@ -344,4 +344,65 @@ describe("PaddleOCR JSONL markdown normalization", () => {
       ].join("\n"),
     )
   })
+
+  it("preserves audit-relevant text that PaddleOCR excludes from markdown as header content", () => {
+    const jsonl = JSON.stringify({
+      result: {
+        layoutParsingResults: [
+          {
+            prunedResult: {
+              model_settings: {
+                markdown_ignore_labels: ["header", "number"],
+              },
+              parsing_res_list: [
+                {
+                  block_label: "header",
+                  block_content: "一级注册造价师证（安装）",
+                  block_bbox: [449, 146, 729, 173],
+                },
+                {
+                  block_label: "header",
+                  block_content: "使用有效期：2026年03月24日\n-2026年06月22日",
+                  block_bbox: [256, 346, 470, 383],
+                },
+                {
+                  block_label: "number",
+                  block_content: "141",
+                  block_bbox: [578, 1597, 613, 1616],
+                },
+              ],
+            },
+            markdown: {
+              text: [
+                "# 中华人民共和国 一级造价工程师注册证书",
+                "姓 名：陈思羽",
+                "证书编号：建[造]14254400038715",
+                "有效期：2025年07月07日-2029年07月06日",
+              ].join("\n"),
+            },
+          },
+        ],
+      },
+    })
+
+    const pages = parsePaddleOcrJsonlMarkdown(jsonl)
+    expect(pages).toEqual([
+      {
+        pageIndex: 0,
+        markdown: [
+          "一级注册造价师证（安装）",
+          "使用有效期：2026年03月24日\n-2026年06月22日",
+          [
+            "# 中华人民共和国 一级造价工程师注册证书",
+            "姓 名：陈思羽",
+            "证书编号：建[造]14254400038715",
+            "有效期：2025年07月07日-2029年07月06日",
+          ].join("\n"),
+        ].join("\n\n"),
+      },
+    ])
+    expect(paddleOcrMarkdownPagesToOcrText(pages)).toContain("使用有效期：2026年03月24日")
+    expect(paddleOcrMarkdownPagesToOcrText(pages)).toContain("-2026年06月22日")
+    expect(paddleOcrMarkdownPagesToOcrText(pages)).not.toContain("141")
+  })
 })

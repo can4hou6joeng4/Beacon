@@ -337,6 +337,49 @@ describe("analyzePaddleOcrJsonl", () => {
     expect(artifacts.result.needs_review[0]?.reason).toBe("一级注册造价师证应以使用有效期为准，但 OCR 未识别到该字段")
   })
 
+  it("audits document use-validity fields that PaddleOCR recognizes only in ignored header blocks", () => {
+    const jsonl = JSON.stringify({
+      result: {
+        layoutParsingResults: [
+          {
+            prunedResult: {
+              model_settings: {
+                markdown_ignore_labels: ["header", "number"],
+              },
+              parsing_res_list: [
+                {
+                  block_label: "header",
+                  block_content: "一级注册造价师证（安装）",
+                  block_bbox: [449, 146, 729, 173],
+                },
+                {
+                  block_label: "header",
+                  block_content: "使用有效期：2026年03月24日\n-2026年06月22日",
+                  block_bbox: [256, 346, 470, 383],
+                },
+              ],
+            },
+            markdown: {
+              text: [
+                "# 中华人民共和国 一级造价工程师注册证书",
+                "姓 名：陈思羽",
+                "证书编号：建[造]14254400038715",
+                "有效期：2025年07月07日-2029年07月06日",
+              ].join("\n"),
+            },
+          },
+        ],
+      },
+    })
+
+    const artifacts = analyzePaddleOcrJsonl({ jobId: "job-header-use-validity", cutoff: "2026-06-24", jsonl })
+
+    expect(artifacts.ocrText).toContain("一级注册造价师证（安装）")
+    expect(artifacts.ocrText).toContain("使用有效期：2026年03月24日")
+    expect(artifacts.result.matches.map((row) => row.expiry_date)).toEqual(["2026-06-22"])
+    expect(artifacts.result.needs_review).toHaveLength(0)
+  })
+
   it("uses the later date for OCR-misread use-validity labels without a range dash", () => {
     const jsonl = jsonlFromPages([
       [
