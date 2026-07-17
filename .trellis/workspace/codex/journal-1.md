@@ -104,3 +104,36 @@ Completed the remaining upload-session error test gap, verified test/lint/build/
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Refactor frontend to Design C report-flow
+
+**Date**: 2026-07-17
+**Task**: Refactor frontend to Design C report-flow
+**Branch**: `main`
+
+### Summary
+
+Rebuilt the entire web/ frontend as the Design C report-flow experience (submit -> processing -> report, plus history and admin screens) wired to the real pipeline APIs with zero backend changes. Removed dark mode, recharts and next-themes; self-hosted Space Grotesk; ported upload/poll orchestration with generation guards; fixed 11 review-confirmed issues (download allowlist, background-exit gating, failed-row reasons, UTC cutoff anchoring, legacy job guards, password field semantics). All gates green (test/lint/build/cf:build); visual parity verified headlessly against the 4315 prototype.
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f739042` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
