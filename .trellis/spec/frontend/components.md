@@ -11,13 +11,19 @@ Reference structure:
 | Area | Path |
 | --- | --- |
 | App route shell | `web/src/app/page.tsx` |
-| Audit workbench | `web/src/components/audit/` |
+| Report-flow app shell | `web/src/components/audit/report-flow-app.tsx` |
+| Audit screens | `web/src/components/audit/{submit,processing,report,history,users}-screen.tsx` |
 | Auth UI | `web/src/components/auth/` |
-| Theme toggle | `web/src/components/theme-toggle.tsx` |
-| shadcn primitives | `web/src/components/ui/` |
+| shadcn primitives | `web/src/components/ui/` (`button`, `input`, `label`, `sonner`) |
 
 Use Next.js App Router file conventions. New pages or API routes belong under
 `web/src/app/`. There is no `routes.ts` registration file in this project.
+
+The app is a single route. `page.tsx` (server component) renders `SignInPanel`
+when unauthenticated or `ReportFlowApp` when authenticated. `ReportFlowApp` owns
+a client-side screen switcher (`submit | processing | report | history |
+users`) — there is no client router. The design is a single light "paper"
+theme (`color-scheme: light`); there is no dark mode or theme toggle.
 
 ## Server And Client Components
 
@@ -31,52 +37,54 @@ Use Next.js App Router file conventions. New pages or API routes belong under
 
 ## UI Primitives
 
-Prefer the existing local shadcn primitives in `web/src/components/ui/`:
+Design C is bespoke enough that most UI is written as Tailwind-utility JSX
+against the `globals.css` tokens rather than wrapped primitives. Only four
+local shadcn primitives remain in `web/src/components/ui/`:
 
-- `Button` for commands and icon buttons
-- `Card` for repeated entities, forms, and bounded tool panels
-- `Dialog` for record details
-- `Tabs` for result categories
-- `Badge` for statuses and counts
-- `Alert` for blocking errors
-- `Progress` for upload/OCR progress
+- `Button` — variants `default` (cobalt primary), `hairline`, `text`.
+- `Input` — underline field (transparent, bottom hairline, focus accent).
+- `Label` — faint letter-spaced field label.
+- `Sonner` `Toaster` — bottom-center ink pill, `theme="light"` (no next-themes).
+
+Before adding a new primitive, check whether a few utility classes on the
+existing tokens (`bg-sunken`, `border-hair`, `text-faint`, `num`, `animate-rise`)
+already express it. Toasts (via `sonner`) replace the old `Alert` banner pattern
+for transient success/error feedback.
 
 Use `lucide-react` icons for recognizable actions. Include `sr-only` labels for
 icon-only buttons.
 
-## Audit Console Layout
+## Report-Flow Layout
 
-The first screen is the usable audit console, not a landing page.
+The authenticated app is a focused three-beat flow — submit → processing →
+report — plus history and admin screens, rendered one screen at a time inside a
+centered column (max width 768px for submit/history/users, 888px for report).
 
-Current layout:
-
-- Left sidebar: account/quota and upload controls.
-- Main area: headline, history button, centered task pipeline, audit overview,
-  result table.
-- Dialogs: history browser, evidence details, and admin user management.
-
-Keep operational UIs dense and scannable:
-
-- Avoid oversized marketing hero sections.
-- Avoid nesting cards inside cards unless the nested card is a repeated result
-  metric or bounded record item.
-- Use stable grid dimensions for tables, tabs, quota fields, and progress areas.
-- Ensure long filenames, emails, evidence text, and OCR lines wrap or truncate
-  intentionally.
+- A sticky topbar hosts navigation (新建检查 / 历史 / 用户管理 / 上次报告) and the
+  user chip; it is hidden during the processing screen.
+- Screens open with the staggered `Rise` container (`animate-rise`, 60ms/index).
+- Typography carries the design: the `num` utility (`@utility num` in
+  `globals.css`) renders tabular Space Grotesk for all digits/latin display type;
+  section colors are the tokens `--destructive` / `--near` / `--review` / `--ok`.
+- Keep long filenames, emails, evidence text, and OCR lines wrapping or
+  truncating intentionally (`break-all`, scroll containers).
 
 ## Task Pipeline
 
-The task pipeline belongs in the main audit content area, centered near the top
-of the page. It should show upload/OCR progress as a horizontal stepper on
-desktop and collapse into readable grid rows on smaller screens.
+The pipeline is the full-screen processing scene (`processing-screen.tsx`): a
+hairline top progress track, a giant eased percentage (rAF easing that honors
+`prefers-reduced-motion`), a swapping status line, and a five-dot step
+indicator driven by the real `StageState.activeStep`.
 
-- Keep the sidebar focused on account/quota and upload controls.
-- Preserve the existing staged upload/OCR state machine; pipeline changes should
-  be presentational unless a task explicitly changes behavior.
-- Use lightweight CSS/Tailwind animations for the active step and running
-  progress only.
-- Prevent animation from changing layout dimensions or hiding text.
-- Keep done, active, waiting, and failed states distinct.
+- The overall percent maps the pipeline onto a single 0–100 scale (see
+  `overallPercent` in `report-flow-app.tsx`): staged client jumps for
+  upload/submit, `PaddleOcrProviderProgress.percent` for OCR, analyze/persist
+  stages near the end.
+- Preserve the staged upload/OCR state machine; progress is presentational.
+- There is no cancel API. The processing screen's exit affordance is 转入后台
+  (stop polling, return to submit; the job keeps its server-side row and resumes
+  polling when reopened from 历史). A failed poll switches the same screen to a
+  danger state with a 返回 affordance — no dead-end.
 
 ## Evidence Text
 
@@ -86,46 +94,31 @@ it for reading, not as one unbounded line.
 Reference helpers:
 
 - `web/src/lib/evidence-text.ts`
-- `EvidencePreview` and `ReadableTextBlock` in
-  `web/src/components/audit/result-table.tsx`
+- The 字段片段 blockquote and OCR 上下文 line list in
+  `web/src/components/audit/report-screen.tsx`
 
 Rules:
 
-- Use cleaned evidence text for table previews.
-- Use clamped previews in tables.
-- Use scrollable blocks in dialogs for long text.
+- Use `cleanEvidenceText` for the single-line 字段片段 quote.
+- Render OCR context as a line array via `evidenceLines` inside a max-height
+  scroll container.
 - Preserve line breaks in detailed evidence views by rendering line arrays.
 - Use `break-words` for long OCR fragments.
 - Do not use `dangerouslySetInnerHTML` for OCR/provider text.
-
-Example:
-
-```tsx
-function ReadableTextBlock({ text }: { text: string }) {
-  const lines = evidenceLines(text)
-  return (
-    <div className="overflow-y-auto rounded-md border bg-muted/40 p-3">
-      {(lines.length > 0 ? lines : ["无内容"]).map((line, index) => (
-        <p key={`${line}-${index}`} className="break-words leading-6">
-          {line}
-        </p>
-      ))}
-    </div>
-  )
-}
-```
+- PaddleOCR analyzer rows always have `items: []`; render `row.title` as the
+  primary label and show the 书签路径 line only when `row.items?.length` (legacy
+  local-python rows).
 
 ## Admin Forms
 
-Admin user management belongs in an admin-only dialog opened from a compact
-command button, not in the always-visible sidebar. The sidebar should stay
-focused on the audit workflow: account/quota, upload controls, and pipeline
-state.
+Admin user management is the 用户管理 screen (`users-screen.tsx`), reachable
+from the topbar for admins only: a 新增用户 form grid on top and an
+inline-editable user list below (borderless name input, underline role/status
+selects, quota number fields, usage line, 保存/启用/禁用 text actions).
 
-- Use a wider responsive grid for quota fields so labels and inputs fit without
-  relying on sidebar scrolling.
-- Show quota boundary summary near quota inputs.
-- Keep refresh/save/enable/disable actions as explicit buttons with icons.
+- Keep numeric quota form values as strings while editing; convert at the API
+  boundary (`numberFromInput`).
+- Surface create/update results through toasts, not persistent banners.
 - Disable self-disable.
 - Use server validation as authority; client `min`/`max` inputs are only UI
   affordances.
