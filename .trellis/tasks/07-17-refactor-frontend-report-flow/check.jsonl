@@ -1,0 +1,6 @@
+{"file": ".trellis/tasks/07-17-refactor-frontend-report-flow/research/design-c-mapping.md", "reason": "Verify implementation matches the prototype mapping (tokens, screens, row rules, progress mapping, deletion list)"}
+{"file": ".trellis/tasks/07-17-refactor-frontend-report-flow/research/api-contract.md", "reason": "Verify payload types and error handling match the real API shapes"}
+{"file": ".trellis/tasks/07-17-refactor-frontend-report-flow/research/frontend-coding-rules.md", "reason": "Quality checklist source: no any/!, typing patterns, a11y, Tailwind4 conventions, required gates"}
+{"file": ".trellis/spec/frontend/quality.md", "reason": "Frontend quality check section (required checks, async UX, dependency discipline)"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Pre-development checklist + quality-check entry point for the frontend layer"}
+{"file": ".trellis/spec/shared/code-quality.md", "reason": "Repo-wide review checklist (naming, error handling, secrets, commit hygiene)"}
