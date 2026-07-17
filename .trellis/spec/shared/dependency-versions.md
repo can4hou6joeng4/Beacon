@@ -26,7 +26,9 @@
 
 This project does **not** currently use React Router, Vite, Hono, Drizzle,
 libSQL/Turso, Better Auth, Zod, or React Query. Do not add them merely because a
-generic template mentions them.
+generic template mentions them. `recharts` and `next-themes` were removed in the
+2026-07 Design C report-flow refactor (single light theme, CSS-only distribution
+bar) — do not reintroduce them without a new decision.
 
 ## Next.js 16 Rule
 
@@ -67,11 +69,16 @@ variable namespace before changing component markup.
 
 Rules:
 
-- Keep color tokens mapped in `@theme inline`.
-- Prefer existing shadcn primitives in `web/src/components/ui/`.
+- Keep color tokens mapped in `@theme inline`. The palette is the Design C
+  "report flow" paper theme (hex values mirroring
+  `designs/pdf-audit-redesign/report-flow.html`); there is no `.dark` block.
+- Space Grotesk (latin subset, variable 400-700) is self-hosted at
+  `web/public/fonts/space-grotesk-latin.woff2` and declared via `@font-face` in
+  `globals.css` (`--font-latin` + the `num` utility). No `next/font`, no font
+  `<link>` tags.
+- Prefer existing shadcn primitives in `web/src/components/ui/` (`button`,
+  `input`, `label`, `sonner` are the only ones kept).
 - Do not install new UI libraries without checking bundle and Worker impact.
-- Keep card radius to the local primitive default unless a component already has
-  a project-specific style.
 
 ## Dependency Change Checklist
 

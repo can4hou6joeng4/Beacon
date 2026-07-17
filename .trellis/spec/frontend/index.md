@@ -108,9 +108,9 @@
 
 Use real project files as examples first:
 
-- `web/src/components/audit/audit-command-center.tsx`
-- `web/src/components/audit/result-table.tsx`
-- `web/src/components/audit/admin-user-panel.tsx`
+- `web/src/components/audit/report-flow-app.tsx` (shell + pipeline orchestration)
+- `web/src/components/audit/report-screen.tsx` (report document + evidence rows)
+- `web/src/components/audit/users-screen.tsx` (admin forms)
 - `web/src/components/auth/sign-in-panel.tsx`
 
 The `examples/frontend-design/` directory is retained from Trellis bootstrap
