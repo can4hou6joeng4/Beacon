@@ -1,13 +1,11 @@
 "use client"
 
-import { LogIn } from "lucide-react"
-import { FormEvent, useState } from "react"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { LoaderCircle } from "lucide-react"
+import { useState, type FormEvent } from "react"
+import { Rise } from "@/components/audit/rise"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ThemeToggle } from "@/components/theme-toggle"
 
 type LoginResponse = {
   error?: string
@@ -43,64 +41,56 @@ export function SignInPanel() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f3f6f8] p-5 text-foreground dark:bg-background">
-      <div className="mx-auto flex min-h-[calc(100vh-2.5rem)] max-w-5xl flex-col">
-        <header className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-lg bg-[#176b87] text-sm font-black text-white">PDF</div>
-            <div>
-              <h1 className="text-base font-semibold">证件有效期审计</h1>
-              <p className="text-xs text-muted-foreground">Cloudflare 云端审计工作台</p>
-            </div>
+    <main className="flex min-h-screen items-center justify-center p-6">
+      <form className="flex w-full max-w-90 flex-col gap-7 pb-[8vh]" onSubmit={handleSubmit}>
+        <Rise index={0} className="mb-3">
+          <h1 className="text-3xl font-bold tracking-[0.04em]">有效期检查</h1>
+          <div className="font-latin mt-2 text-[11px] font-medium tracking-[0.42em] text-primary">EXPIRY AUDIT</div>
+        </Rise>
+        <Rise index={1}>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="login-account">账号</Label>
+            <Input
+              id="login-account"
+              value={account}
+              autoComplete="username"
+              autoFocus
+              onChange={(event) => setAccount(event.target.value)}
+              required
+            />
           </div>
-          <ThemeToggle />
-        </header>
-
-        <section className="grid flex-1 place-items-center py-10">
-          <Card className="w-full max-w-md">
-            <CardHeader>
-              <div className="mb-2 grid h-10 w-10 place-items-center rounded-lg bg-[#176b87] text-white">
-                <LogIn className="h-5 w-5" />
-              </div>
-              <CardTitle>登录审计工作台</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {error ? (
-                <Alert variant="destructive" className="mb-4">
-                  <AlertTitle>登录失败</AlertTitle>
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              ) : null}
-              <form className="space-y-4" onSubmit={handleSubmit}>
-                <div className="space-y-2">
-                  <Label htmlFor="account">账号</Label>
-                  <Input
-                    id="account"
-                    value={account}
-                    onChange={(event) => setAccount(event.target.value)}
-                    autoComplete="username"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password">密码</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    autoComplete="current-password"
-                    required
-                  />
-                </div>
-                <Button className="w-full bg-[#176b87] hover:bg-[#145d75]" type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? "登录中" : "登录"}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-        </section>
-      </div>
+        </Rise>
+        <Rise index={2}>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="login-password">密码</Label>
+            <Input
+              id="login-password"
+              type="password"
+              value={password}
+              autoComplete="current-password"
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+          </div>
+        </Rise>
+        {error ? (
+          <p className="animate-swap text-center text-[13px] text-destructive" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <Rise index={3}>
+          <Button className="w-full" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? (
+              <span className="inline-flex items-center gap-2">
+                <LoaderCircle className="size-4 animate-spin" />
+                正在进入…
+              </span>
+            ) : (
+              "进入"
+            )}
+          </Button>
+        </Rise>
+      </form>
     </main>
   )
 }
