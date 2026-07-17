@@ -1,0 +1,8 @@
+{"file": ".trellis/tasks/07-17-refactor-frontend-report-flow/research/design-c-mapping.md", "reason": "Core mapping: Design C tokens, screen/API wiring, items-empty row rules, progress mapping, gap handling, file plan"}
+{"file": ".trellis/tasks/07-17-refactor-frontend-report-flow/research/api-contract.md", "reason": "Exact endpoint request/response shapes, error codes, status/provider progress semantics the new UI must wire to"}
+{"file": ".trellis/tasks/07-17-refactor-frontend-report-flow/research/frontend-coding-rules.md", "reason": "Binding rules digest: banned deps, Tailwind4 CSS-first, data-active variant, hydration idiom, fetch typing, a11y, gates"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Fetch payload typing, form-values-as-strings, nullability patterns used across all new components"}
+{"file": ".trellis/spec/frontend/hooks.md", "reason": "Polling/retry/effect rules for the ported pipeline orchestration (window.setTimeout, no 4xx retry, quota refresh points)"}
+{"file": ".trellis/spec/frontend/components.md", "reason": "Component/rendering/a11y rules (semantic HTML, evidence text via lib/evidence-text, no dangerouslySetInnerHTML)"}
+{"file": ".trellis/spec/frontend/authentication.md", "reason": "Login contract ({username,password}), quota snapshot usage, admin self-disable rule, auth error matrix"}
+{"file": ".trellis/spec/shared/dependency-versions.md", "reason": "Allowed/banned dependency list; consult before removing recharts/next-themes and for Tailwind4/shadcn specifics"}
