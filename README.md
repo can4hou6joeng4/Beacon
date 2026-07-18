@@ -21,7 +21,7 @@
 
 上传一份含书签的人员证件汇编 PDF（特种作业证、健康证明、资格证书……），Beacon 会自动 OCR 识别每一页、提取有效期字段，并按你设定的截止日期把所有证件分成四类：**截止日内到期 / 临近到期 / 需要复核 / 有效**，最后生成一份可搜索、可展开证据、可下载的审计报告。
 
-与 [Harbor](https://github.com/can4hou6joeng4/Harbor)（知识停泊的港湾）同属一个家族：Harbor 收藏知识，Beacon 预警风险。
+与 [Harbor](https://github.com/can4hou6joeng4/Harbor)、[TokenAtlas](https://github.com/can4hou6joeng4/TokenAtlas) 同属航海家族：Harbor 收藏知识，Beacon 预警风险，TokenAtlas 丈量航程。
 
 ## 功能特性
 
